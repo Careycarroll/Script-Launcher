@@ -101,7 +101,9 @@ func buildIndex(groups []registry.Group) []itemRef {
 type viewState int
 
 const (
-	stateMenu   viewState = iota
+	stateMenu    viewState = iota
+	stateConfirm
+	stateQueue
 	statePrompt
 	stateOutput
 )
@@ -111,8 +113,14 @@ const (
 // ────────────────────────────────────────────────────────────────────────────
 
 type scriptDoneMsg struct {
-	output string
-	err    error
+	output      string
+	err         error
+	interactive bool
+}
+
+type filePickerMsg struct {
+	path string
+	err  error
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -132,6 +140,7 @@ type model struct {
 	argInputs     []textinput.Model
 	argFocus      int
 	vp            viewport.Model
+	fileQueue     []string
 }
 
 func initialModel() model {
@@ -141,13 +150,17 @@ func initialModel() model {
 	}
 }
 
-func makeInputs(defs []registry.Arg) []textinput.Model {
+func makeInputs(defs []registry.Arg, width int) []textinput.Model {
 	inputs := make([]textinput.Model, len(defs))
 	for i, def := range defs {
 		ti := textinput.New()
 		ti.Placeholder = def.Default
 		ti.CharLimit = 512
-		ti.Width = 60
+		if width > 0 {
+			ti.Width = width - 12
+		} else {
+			ti.Width = 60
+		}
 		inputs[i] = ti
 	}
 	return inputs
@@ -157,15 +170,73 @@ func makeInputs(defs []registry.Arg) []textinput.Model {
 // Commands
 // ────────────────────────────────────────────────────────────────────────────
 
+func runFilePicker(dirMode bool) tea.Cmd {
+	return func() tea.Msg {
+		script := "POSIX path of (choose file)"
+		if dirMode {
+			script = "POSIX path of (choose folder)"
+		}
+		out, err := exec.Command("osascript", "-e", script).Output()
+		if err != nil {
+			return filePickerMsg{err: err}
+		}
+		return filePickerMsg{path: strings.TrimSpace(string(out))}
+	}
+}
+
+func runScriptWithFiles(s registry.Script, files []string) tea.Cmd {
+	batchMode := false
+	for _, def := range s.ArgDefs {
+		if def.BatchArgs {
+			batchMode = true
+			break
+		}
+	}
+	return func() tea.Msg {
+		if batchMode {
+			cmd := exec.Command(s.Path, files...)
+			cmd.Env = os.Environ()
+			out, err := cmd.CombinedOutput()
+			return scriptDoneMsg{output: string(out), err: err}
+		}
+		// Run once per file, concatenate output
+		var combined strings.Builder
+		var lastErr error
+		for _, f := range files {
+			cmd := exec.Command(s.Path, f)
+			cmd.Env = os.Environ()
+			out, err := cmd.CombinedOutput()
+			if len(files) > 1 {
+				combined.WriteString(fmt.Sprintf("── %s ──\n", f))
+			}
+			combined.WriteString(string(out))
+			combined.WriteString("\n")
+			if err != nil {
+				lastErr = err
+			}
+		}
+		return scriptDoneMsg{output: combined.String(), err: lastErr}
+	}
+}
+
 func runScript(s registry.Script) tea.Cmd {
 	return func() tea.Msg {
-		cmd := exec.Command(s.Path, s.Args...)
-		cmd.Env = os.Environ()
-		out, err := cmd.CombinedOutput()
-		return scriptDoneMsg{
-			output: string(out),
-			err:    err,
+		var positional []string
+		workDir := ""
+		for i, arg := range s.Args {
+			if i < len(s.ArgDefs) && s.ArgDefs[i].SetWorkDir {
+				workDir = arg
+			} else {
+				positional = append(positional, arg)
+			}
 		}
+		cmd := exec.Command(s.Path, positional...)
+		cmd.Env = os.Environ()
+		if workDir != "" {
+			cmd.Dir = workDir
+		}
+		out, err := cmd.CombinedOutput()
+		return scriptDoneMsg{output: string(out), err: err}
 	}
 }
 
@@ -206,22 +277,83 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "enter", " ":
 				ref := m.index[m.cursor]
 				script := m.groups[ref.groupIdx].Scripts[ref.scriptIdx]
+
+				hasMultiFile := false
+				for _, def := range script.ArgDefs {
+					if def.MultiFile {
+						hasMultiFile = true
+						break
+					}
+				}
+				if hasMultiFile {
+					m.pendingScript = script
+					m.fileQueue = nil
+					m.state = stateQueue
+					return m, nil
+				}
+
 				if len(script.ArgDefs) > 0 {
 					m.pendingScript = script
-					m.argInputs = makeInputs(script.ArgDefs)
+					m.argInputs = makeInputs(script.ArgDefs, m.width)
 					m.argFocus = 0
 					m.argInputs[0].Focus()
 					m.state = statePrompt
 					return m, textinput.Blink
 				}
-				if script.Interactive {
-					cmd := exec.Command(script.Path, script.Args...)
+				m.pendingScript = script
+				m.state = stateConfirm
+				return m, nil
+			}
+
+		case stateConfirm:
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc", "b":
+				m.state = stateMenu
+				return m, nil
+			case "enter":
+				if m.pendingScript.Interactive {
+					cmd := exec.Command(m.pendingScript.Path, m.pendingScript.Args...)
 					cmd.Env = os.Environ()
 					return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
-						return scriptDoneMsg{output: "", err: err}
+						return scriptDoneMsg{output: "", err: err, interactive: true}
 					})
 				}
-				return m, runScript(script)
+				return m, runScript(m.pendingScript)
+			}
+
+		case stateQueue:
+			switch msg.String() {
+			case "ctrl+c":
+				return m, tea.Quit
+			case "esc", "b":
+				m.state = stateMenu
+				m.fileQueue = nil
+				return m, nil
+			case "f":
+				return m, runFilePicker(false)
+			case "d":
+				hasDirPicker := false
+				for _, def := range m.pendingScript.ArgDefs {
+					if def.DirPicker {
+						hasDirPicker = true
+						break
+					}
+				}
+				if hasDirPicker {
+					return m, runFilePicker(true)
+				}
+			case "backspace":
+				if len(m.fileQueue) > 0 {
+					m.fileQueue = m.fileQueue[:len(m.fileQueue)-1]
+				}
+				return m, nil
+			case "enter":
+				if len(m.fileQueue) == 0 {
+					return m, nil
+				}
+				return m, runScriptWithFiles(m.pendingScript, m.fileQueue)
 			}
 
 		case statePrompt:
@@ -242,6 +374,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.argFocus = (m.argFocus - 1 + len(m.argInputs)) % len(m.argInputs)
 				m.argInputs[m.argFocus].Focus()
 				return m, textinput.Blink
+			case "f":
+				if m.pendingScript.ArgDefs[m.argFocus].FilePicker || m.pendingScript.ArgDefs[m.argFocus].DirPicker {
+					return m, runFilePicker(m.pendingScript.ArgDefs[m.argFocus].DirPicker)
+				}
+				var cmd tea.Cmd
+				m.argInputs[m.argFocus], cmd = m.argInputs[m.argFocus].Update(msg)
+				return m, cmd
 			case "enter":
 				if m.argFocus < len(m.argInputs)-1 {
 					m.argInputs[m.argFocus].Blur()
@@ -249,20 +388,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.argInputs[m.argFocus].Focus()
 					return m, textinput.Blink
 				}
-				args := make([]string, len(m.argInputs))
+				var args []string
 				for i, input := range m.argInputs {
 					val := input.Value()
 					if val == "" && m.pendingScript.ArgDefs[i].Default != "" {
 						val = m.pendingScript.ArgDefs[i].Default
 					}
-					args[i] = val
+					if val != "" {
+						args = append(args, val)
+					}
 				}
 				m.pendingScript.Args = args
 				if m.pendingScript.Interactive {
 					cmd := exec.Command(m.pendingScript.Path, args...)
 					cmd.Env = os.Environ()
 					return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
-						return scriptDoneMsg{output: "", err: err}
+						return scriptDoneMsg{output: "", err: err, interactive: true}
 					})
 				}
 				return m, runScript(m.pendingScript)
@@ -287,7 +428,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	case filePickerMsg:
+		if msg.err == nil && msg.path != "" {
+			if m.state == stateQueue {
+				m.fileQueue = append(m.fileQueue, msg.path)
+			} else {
+				m.argInputs[m.argFocus].SetValue(msg.path)
+			}
+		}
+		return m, nil
+
 	case scriptDoneMsg:
+		if msg.interactive {
+			m.state = stateMenu
+			return m, nil
+		}
 		m.output = msg.output
 		m.lastErr = msg.err
 		vpHeight := m.height - 6
@@ -318,6 +473,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) View() string {
 	switch m.state {
+	case stateConfirm:
+		return m.viewConfirm()
+	case stateQueue:
+		return m.viewQueue()
 	case statePrompt:
 		return m.viewPrompt()
 	case stateOutput:
@@ -341,35 +500,87 @@ func (m model) viewMenu() string {
 			} else {
 				b.WriteString(styleNormal.Render("  "+script.Name) + "\n")
 			}
-			b.WriteString(styleDesc.Render(script.Description) + "\n")
+			b.WriteString(styleDesc.Width(m.width - 4).Render(script.Description) + "\n")
 			pos++
 		}
 	}
 
-	b.WriteString(styleHelp.Render("↑/↓ navigate • enter run • q quit"))
+	b.WriteString(styleHelp.Width(m.width - 4).Render("↑/↓ navigate • enter run • q quit"))
+	return b.String()
+}
+
+func (m model) viewConfirm() string {
+	var b strings.Builder
+	b.WriteString(styleTitle.Render("⚡ "+m.pendingScript.Name) + "\n\n")
+	b.WriteString(styleDesc.Width(m.width - 4).Render(m.pendingScript.Description) + "\n\n")
+	if m.pendingScript.Help != "" {
+		b.WriteString(styleDesc.Width(m.width - 4).Render(m.pendingScript.Help) + "\n\n")
+	}
+	b.WriteString(styleHelp.Width(m.width - 4).Render("enter run • esc back"))
+	return b.String()
+}
+
+func (m model) viewQueue() string {
+	var b strings.Builder
+	b.WriteString(styleTitle.Render("⚡ "+m.pendingScript.Name) + "\n\n")
+	if m.pendingScript.Help != "" {
+		b.WriteString(styleDesc.Width(m.width - 4).Render(m.pendingScript.Help) + "\n\n")
+	}
+
+	if len(m.fileQueue) == 0 {
+		b.WriteString(styleDesc.Render("No files queued — press f to add") + "\n\n")
+	} else {
+		b.WriteString(styleNormal.Render("Files queued:") + "\n")
+		for i, f := range m.fileQueue {
+			b.WriteString(styleDesc.Width(m.width - 4).Render(fmt.Sprintf("%d. %s", i+1, f)) + "\n")
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString(func() string {
+		hint := "f add file"
+		hasDirPicker := false
+		for _, def := range m.pendingScript.ArgDefs {
+			if def.DirPicker {
+				hasDirPicker = true
+				break
+			}
+		}
+		if hasDirPicker {
+			hint += " • d add folder"
+		}
+		hint += " • backspace remove last • enter run • esc back"
+		return styleHelp.Width(m.width - 4).Render(hint)
+	}())
 	return b.String()
 }
 
 func (m model) viewPrompt() string {
 	var b strings.Builder
 	b.WriteString(styleTitle.Render("⚡ "+m.pendingScript.Name) + "\n\n")
+	if m.pendingScript.Help != "" {
+		b.WriteString(styleDesc.Width(m.width - 4).Render(m.pendingScript.Help) + "\n\n")
+	}
 
 	for i, def := range m.pendingScript.ArgDefs {
-		b.WriteString(styleInputLabel.Render(def.Label) + "\n")
+		b.WriteString(styleInputLabel.Width(m.width - 4).Render(def.Label) + "\n")
 		if i == m.argFocus {
-			b.WriteString(styleInputActive.Render(m.argInputs[i].View()) + "\n\n")
+			b.WriteString(styleInputActive.Width(m.width - 6).Render(m.argInputs[i].View()) + "\n\n")
 		} else {
-			b.WriteString(styleInputInactive.Render(m.argInputs[i].View()) + "\n\n")
+			b.WriteString(styleInputInactive.Width(m.width - 6).Render(m.argInputs[i].View()) + "\n\n")
 		}
 	}
 
-	b.WriteString(styleHelp.Render("tab/↓ next field • shift+tab/↑ prev • enter run • esc back"))
+	if m.pendingScript.ArgDefs[m.argFocus].FilePicker || m.pendingScript.ArgDefs[m.argFocus].DirPicker {
+		b.WriteString(styleHelp.Width(m.width - 4).Render("tab/↓ next field • shift+tab/↑ prev • enter run • esc back • f pick file"))
+	} else {
+		b.WriteString(styleHelp.Width(m.width - 4).Render("tab/↓ next field • shift+tab/↑ prev • enter run • esc back"))
+	}
 	return b.String()
 }
 
 func (m model) viewOutput() string {
 	var b strings.Builder
-
 	title := "✓ Output"
 	if m.lastErr != nil {
 		title = styleError.Render("✗ Error")
@@ -377,8 +588,11 @@ func (m model) viewOutput() string {
 	b.WriteString(styleTitle.Render(title) + "\n")
 	b.WriteString(styleOutput.Render(m.vp.View()) + "\n")
 
-	scrollPct := int(m.vp.ScrollPercent() * 100)
-	b.WriteString(styleHelp.Render(fmt.Sprintf("↑/↓ scroll • %d%% • esc/b → back • q quit", scrollPct)))
+	scrollPct := 0
+	if m.vp.TotalLineCount() > 0 {
+		scrollPct = int(m.vp.ScrollPercent() * 100)
+	}
+	b.WriteString(styleHelp.Width(m.width - 4).Render(fmt.Sprintf("↑/↓ scroll • %d%% • esc/b → back • q quit", scrollPct)))
 	return b.String()
 }
 
