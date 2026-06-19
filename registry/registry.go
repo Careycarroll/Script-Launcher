@@ -1,4 +1,4 @@
-package main
+package registry
 
 // Arg defines a single prompted argument for a script.
 type Arg struct {
@@ -10,7 +10,7 @@ type Arg struct {
 type Script struct {
 	Name        string
 	Description string
-	Path        string // absolute path to the binary/script
+	Path        string
 	Args        []string
 	ArgDefs     []Arg
 	Interactive bool
@@ -22,9 +22,9 @@ type Group struct {
 	Scripts []Script
 }
 
-// registry is the master list of all tool groups.
+// Groups is the master list of all tool groups.
 // Add new scripts here as you create them.
-var registry = []Group{
+var Groups = []Group{
 	{
 		Name: "Vault",
 		Scripts: []Script{
@@ -38,7 +38,6 @@ var registry = []Group{
 				Name:        "Add Vault Link",
 				Description: "Add a new link / reference into the vault",
 				Path:        "/Users/careycarroll/bin/add_vault_link",
-				Interactive: true,
 				ArgDefs: []Arg{
 					{Label: "File path"},
 					{Label: "Wikilink (e.g. [[Note Name]])"},

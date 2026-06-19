@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"strings"
 
+	"scripttui/registry"
+
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -82,7 +84,7 @@ type itemRef struct {
 	scriptIdx int
 }
 
-func buildIndex(groups []Group) []itemRef {
+func buildIndex(groups []registry.Group) []itemRef {
 	var idx []itemRef
 	for g, group := range groups {
 		for s := range group.Scripts {
@@ -99,9 +101,9 @@ func buildIndex(groups []Group) []itemRef {
 type viewState int
 
 const (
-	stateMenu   viewState = iota // browsing the script list
-	statePrompt                  // collecting arguments before run
-	stateOutput                  // showing output after a run
+	stateMenu   viewState = iota
+	statePrompt
+	stateOutput
 )
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -118,7 +120,7 @@ type scriptDoneMsg struct {
 // ────────────────────────────────────────────────────────────────────────────
 
 type model struct {
-	groups        []Group
+	groups        []registry.Group
 	index         []itemRef
 	cursor        int
 	state         viewState
@@ -126,7 +128,7 @@ type model struct {
 	lastErr       error
 	width         int
 	height        int
-	pendingScript Script
+	pendingScript registry.Script
 	argInputs     []textinput.Model
 	argFocus      int
 	vp            viewport.Model
@@ -134,12 +136,12 @@ type model struct {
 
 func initialModel() model {
 	return model{
-		groups: registry,
-		index:  buildIndex(registry),
+		groups: registry.Groups,
+		index:  buildIndex(registry.Groups),
 	}
 }
 
-func makeInputs(defs []Arg) []textinput.Model {
+func makeInputs(defs []registry.Arg) []textinput.Model {
 	inputs := make([]textinput.Model, len(defs))
 	for i, def := range defs {
 		ti := textinput.New()
@@ -155,7 +157,7 @@ func makeInputs(defs []Arg) []textinput.Model {
 // Commands
 // ────────────────────────────────────────────────────────────────────────────
 
-func runScript(s Script) tea.Cmd {
+func runScript(s registry.Script) tea.Cmd {
 	return func() tea.Msg {
 		cmd := exec.Command(s.Path, s.Args...)
 		cmd.Env = os.Environ()
@@ -288,7 +290,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case scriptDoneMsg:
 		m.output = msg.output
 		m.lastErr = msg.err
-		// Reserve lines for title (2) + help (2) + border (2)
 		vpHeight := m.height - 6
 		if vpHeight < 5 {
 			vpHeight = 5
@@ -328,12 +329,11 @@ func (m model) View() string {
 
 func (m model) viewMenu() string {
 	var b strings.Builder
-
-	b.WriteString(styleTitle.Render("  🛠  Script Runner") + "\n")
+	b.WriteString(styleTitle.Render("⚡ Script Launcher") + "\n")
 
 	pos := 0
 	for _, group := range m.groups {
-		b.WriteString(styleGroupHeader.Render("  ▸ "+group.Name) + "\n")
+		b.WriteString(styleGroupHeader.Render("▸ "+group.Name) + "\n")
 		for _, script := range group.Scripts {
 			isSelected := pos == m.cursor
 			if isSelected {
@@ -346,21 +346,16 @@ func (m model) viewMenu() string {
 		}
 	}
 
-	b.WriteString(styleHelp.Render("  ↑/↓ navigate • enter run • q quit"))
+	b.WriteString(styleHelp.Render("↑/↓ navigate • enter run • q quit"))
 	return b.String()
 }
 
 func (m model) viewPrompt() string {
 	var b strings.Builder
-
-	b.WriteString(styleTitle.Render("  ⚙  "+m.pendingScript.Name) + "\n\n")
+	b.WriteString(styleTitle.Render("⚡ "+m.pendingScript.Name) + "\n\n")
 
 	for i, def := range m.pendingScript.ArgDefs {
-		label := def.Label
-		if def.Default != "" {
-			label += fmt.Sprintf(" (default: %s)", def.Default)
-		}
-		b.WriteString(styleInputLabel.Render(label) + "\n")
+		b.WriteString(styleInputLabel.Render(def.Label) + "\n")
 		if i == m.argFocus {
 			b.WriteString(styleInputActive.Render(m.argInputs[i].View()) + "\n\n")
 		} else {
@@ -368,26 +363,22 @@ func (m model) viewPrompt() string {
 		}
 	}
 
-	b.WriteString(styleHelp.Render("  tab/↓ next • shift+tab/↑ prev • enter confirm • esc back"))
+	b.WriteString(styleHelp.Render("tab/↓ next field • shift+tab/↑ prev • enter run • esc back"))
 	return b.String()
 }
 
 func (m model) viewOutput() string {
 	var b strings.Builder
 
-	title := "  ✓  Output"
+	title := "✓ Output"
 	if m.lastErr != nil {
-		title = styleError.Render("  ✗  Error")
+		title = styleError.Render("✗ Error")
 	}
 	b.WriteString(styleTitle.Render(title) + "\n")
-
 	b.WriteString(styleOutput.Render(m.vp.View()) + "\n")
 
-	scrollPct := 0
-	if m.vp.TotalLineCount() > 0 {
-		scrollPct = int(m.vp.ScrollPercent() * 100)
-	}
-	b.WriteString(styleHelp.Render(fmt.Sprintf("  ↑/↓ scroll • %d%% • esc/b back • q quit", scrollPct)))
+	scrollPct := int(m.vp.ScrollPercent() * 100)
+	b.WriteString(styleHelp.Render(fmt.Sprintf("↑/↓ scroll • %d%% • esc/b → back • q quit", scrollPct)))
 	return b.String()
 }
 
