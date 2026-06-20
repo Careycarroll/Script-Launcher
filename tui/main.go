@@ -619,10 +619,13 @@ func (m model) viewMenu() string {
 
 func (m model) viewConfirm() string {
 	var b strings.Builder
-	b.WriteString(styleTitle.Render("⚡ "+m.pendingScript.Name) + "\n\n")
-	b.WriteString(styleDesc.Width(m.width - 4).Render(m.pendingScript.Description) + "\n\n")
+	b.WriteString(styleTitle.Render("⚡ "+m.pendingScript.Name))
+	b.WriteString("\n\n")
+	b.WriteString(styleDesc.Width(m.width - 4).Render(m.pendingScript.Description))
+	b.WriteString("\n\n")
 	if m.pendingScript.Help != "" {
-		b.WriteString(styleDesc.Width(m.width - 4).Render(m.pendingScript.Help) + "\n\n")
+		b.WriteString(styleDesc.Width(m.width - 4).Render(m.pendingScript.Help))
+	b.WriteString("\n\n")
 	}
 	b.WriteString(styleHelp.Width(m.width - 4).Render("enter run • esc back"))
 	return b.String()
@@ -630,13 +633,16 @@ func (m model) viewConfirm() string {
 
 func (m model) viewQueue() string {
 	var b strings.Builder
-	b.WriteString(styleTitle.Render("⚡ "+m.pendingScript.Name) + "\n\n")
+	b.WriteString(styleTitle.Render("⚡ "+m.pendingScript.Name))
+	b.WriteString("\n\n")
 	if m.pendingScript.Help != "" {
-		b.WriteString(styleDesc.Width(m.width - 4).Render(m.pendingScript.Help) + "\n\n")
+		b.WriteString(styleDesc.Width(m.width - 4).Render(m.pendingScript.Help))
+	b.WriteString("\n\n")
 	}
 
 	if len(m.fileQueue) == 0 {
-		b.WriteString(styleDesc.Render("No files queued — press f to add") + "\n\n")
+		b.WriteString(styleDesc.Render("No files queued — press f to add"))
+	b.WriteString("\n\n")
 	} else {
 		b.WriteString(styleNormal.Render("Files queued:") + "\n")
 		for i, f := range m.fileQueue {
@@ -653,7 +659,8 @@ func (m model) viewQueue() string {
 				cur = def.Default
 			}
 			b.WriteString(styleInputLabel.Width(m.width - 4).Render(def.Label) + "\n")
-			b.WriteString(styleInputActive.Width(m.width - 6).Render("◀ "+cur+" ▶") + "\n\n")
+			b.WriteString(styleInputActive.Width(m.width - 6).Render("◀ "+cur+" ▶"))
+	b.WriteString("\n\n")
 		}
 	}
 
@@ -677,9 +684,11 @@ func (m model) viewQueue() string {
 
 func (m model) viewPrompt() string {
 	var b strings.Builder
-	b.WriteString(styleTitle.Render("⚡ "+m.pendingScript.Name) + "\n\n")
+	b.WriteString(styleTitle.Render("⚡ "+m.pendingScript.Name))
+	b.WriteString("\n\n")
 	if m.pendingScript.Help != "" {
-		b.WriteString(styleDesc.Width(m.width - 4).Render(m.pendingScript.Help) + "\n\n")
+		b.WriteString(styleDesc.Width(m.width - 4).Render(m.pendingScript.Help))
+	b.WriteString("\n\n")
 	}
 
 	for i, def := range m.pendingScript.ArgDefs {
@@ -691,14 +700,18 @@ func (m model) viewPrompt() string {
 			}
 			display := "◀ " + cur + " ▶"
 			if i == m.argFocus {
-				b.WriteString(styleInputActive.Width(m.width - 6).Render(display) + "\n\n")
+				b.WriteString(styleInputActive.Width(m.width - 6).Render(display))
+	b.WriteString("\n\n")
 			} else {
-				b.WriteString(styleInputInactive.Width(m.width - 6).Render(display) + "\n\n")
+				b.WriteString(styleInputInactive.Width(m.width - 6).Render(display))
+	b.WriteString("\n\n")
 			}
 		} else if i == m.argFocus {
-			b.WriteString(styleInputActive.Width(m.width - 6).Render(m.argInputs[i].View()) + "\n\n")
+			b.WriteString(styleInputActive.Width(m.width - 6).Render(m.argInputs[i].View()))
+	b.WriteString("\n\n")
 		} else {
-			b.WriteString(styleInputInactive.Width(m.width - 6).Render(m.argInputs[i].View()) + "\n\n")
+			b.WriteString(styleInputInactive.Width(m.width - 6).Render(m.argInputs[i].View()))
+	b.WriteString("\n\n")
 		}
 	}
 
