@@ -193,9 +193,42 @@ func runScriptWithFiles(s registry.Script, files []string) tea.Cmd {
 		}
 	}
 	return func() tea.Msg {
+		// Build flags from non-multiFile args
+		var flags []string
+		workDir := ""
+		for i, arg := range s.Args {
+			if i < len(s.ArgDefs) && s.ArgDefs[i].MultiFile {
+				continue
+			}
+			if arg == "" {
+				continue
+			}
+			if i < len(s.ArgDefs) && s.ArgDefs[i].SetWorkDir {
+				info, err := os.Stat(arg)
+				if err == nil && info.IsDir() {
+					workDir = arg
+				}
+			} else if i < len(s.ArgDefs) && s.ArgDefs[i].Flag != "" {
+				flags = append(flags, s.ArgDefs[i].Flag, arg)
+			}
+		}
 		if batchMode {
-			cmd := exec.Command(s.Path, files...)
+			// Separate directories (workdir) from files (positional)
+			var fileArgs []string
+			for _, f := range files {
+				info, err := os.Stat(f)
+				if err == nil && info.IsDir() {
+					workDir = f
+				} else {
+					fileArgs = append(fileArgs, f)
+				}
+			}
+			allArgs := append(flags, fileArgs...)
+			cmd := exec.Command(s.Path, allArgs...)
 			cmd.Env = os.Environ()
+			if workDir != "" {
+				cmd.Dir = workDir
+			}
 			out, err := cmd.CombinedOutput()
 			return scriptDoneMsg{output: string(out), err: err}
 		}
@@ -221,16 +254,27 @@ func runScriptWithFiles(s registry.Script, files []string) tea.Cmd {
 
 func runScript(s registry.Script) tea.Cmd {
 	return func() tea.Msg {
+		var flags []string
 		var positional []string
 		workDir := ""
 		for i, arg := range s.Args {
+			if arg == "" {
+				continue
+			}
 			if i < len(s.ArgDefs) && s.ArgDefs[i].SetWorkDir {
-				workDir = arg
+				info, err := os.Stat(arg)
+				if err == nil && info.IsDir() {
+					workDir = arg
+				} else {
+					positional = append(positional, arg)
+				}
+			} else if i < len(s.ArgDefs) && s.ArgDefs[i].Flag != "" {
+				flags = append(flags, s.ArgDefs[i].Flag, arg)
 			} else {
 				positional = append(positional, arg)
 			}
 		}
-		cmd := exec.Command(s.Path, positional...)
+		cmd := exec.Command(s.Path, append(flags, positional...)...)
 		cmd.Env = os.Environ()
 		if workDir != "" {
 			cmd.Dir = workDir
@@ -288,6 +332,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if hasMultiFile {
 					m.pendingScript = script
 					m.fileQueue = nil
+					m.argInputs = makeInputs(script.ArgDefs, m.width)
 					m.state = stateQueue
 					return m, nil
 				}
@@ -331,6 +376,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = stateMenu
 				m.fileQueue = nil
 				return m, nil
+			case "left", "right":
+				for i, def := range m.pendingScript.ArgDefs {
+					if !def.MultiFile && len(def.Options) > 0 {
+						cur := m.argInputs[i].Value()
+						if cur == "" {
+							cur = def.Default
+						}
+						idx := 0
+						for j, o := range def.Options {
+							if o == cur {
+								idx = j
+								break
+							}
+						}
+						if msg.String() == "right" {
+							idx = (idx + 1) % len(def.Options)
+						} else {
+							idx = (idx - 1 + len(def.Options)) % len(def.Options)
+						}
+						m.argInputs[i].SetValue(def.Options[idx])
+					}
+				}
+				return m, nil
 			case "f":
 				return m, runFilePicker(false)
 			case "d":
@@ -353,6 +421,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if len(m.fileQueue) == 0 {
 					return m, nil
 				}
+				// Collect non-multiFile args at correct ArgDefs index
+				for i, def := range m.pendingScript.ArgDefs {
+					if !def.MultiFile {
+						val := def.Default
+						if i < len(m.argInputs) {
+							if v := m.argInputs[i].Value(); v != "" {
+								val = v
+							}
+						}
+						for len(m.pendingScript.Args) <= i {
+							m.pendingScript.Args = append(m.pendingScript.Args, "")
+						}
+						m.pendingScript.Args[i] = val
+					}
+				}
 				return m, runScriptWithFiles(m.pendingScript, m.fileQueue)
 			}
 
@@ -374,6 +457,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.argFocus = (m.argFocus - 1 + len(m.argInputs)) % len(m.argInputs)
 				m.argInputs[m.argFocus].Focus()
 				return m, textinput.Blink
+			case "left", "right":
+				def := m.pendingScript.ArgDefs[m.argFocus]
+				if len(def.Options) > 0 {
+					cur := m.argInputs[m.argFocus].Value()
+					if cur == "" {
+						cur = def.Default
+					}
+					idx := 0
+					for i, o := range def.Options {
+						if o == cur {
+							idx = i
+							break
+						}
+					}
+					if msg.String() == "right" {
+						idx = (idx + 1) % len(def.Options)
+					} else {
+						idx = (idx - 1 + len(def.Options)) % len(def.Options)
+					}
+					m.argInputs[m.argFocus].SetValue(def.Options[idx])
+					return m, nil
+				}
+				var cmd tea.Cmd
+				m.argInputs[m.argFocus], cmd = m.argInputs[m.argFocus].Update(msg)
+				return m, cmd
 			case "f":
 				if m.pendingScript.ArgDefs[m.argFocus].FilePicker || m.pendingScript.ArgDefs[m.argFocus].DirPicker {
 					return m, runFilePicker(m.pendingScript.ArgDefs[m.argFocus].DirPicker)
@@ -537,6 +645,18 @@ func (m model) viewQueue() string {
 		b.WriteString("\n")
 	}
 
+	// Non-multiFile args (e.g. compression)
+	for i, def := range m.pendingScript.ArgDefs {
+		if !def.MultiFile && len(def.Options) > 0 {
+			cur := m.argInputs[i].Value()
+			if cur == "" {
+				cur = def.Default
+			}
+			b.WriteString(styleInputLabel.Width(m.width - 4).Render(def.Label) + "\n")
+			b.WriteString(styleInputActive.Width(m.width - 6).Render("◀ "+cur+" ▶") + "\n\n")
+		}
+	}
+
 	b.WriteString(func() string {
 		hint := "f add file"
 		hasDirPicker := false
@@ -549,7 +669,7 @@ func (m model) viewQueue() string {
 		if hasDirPicker {
 			hint += " • d add folder"
 		}
-		hint += " • backspace remove last • enter run • esc back"
+		hint += " • ◀/▶ change option • backspace remove last • enter run • esc back"
 		return styleHelp.Width(m.width - 4).Render(hint)
 	}())
 	return b.String()
@@ -564,7 +684,18 @@ func (m model) viewPrompt() string {
 
 	for i, def := range m.pendingScript.ArgDefs {
 		b.WriteString(styleInputLabel.Width(m.width - 4).Render(def.Label) + "\n")
-		if i == m.argFocus {
+		if len(def.Options) > 0 {
+			cur := m.argInputs[i].Value()
+			if cur == "" {
+				cur = def.Default
+			}
+			display := "◀ " + cur + " ▶"
+			if i == m.argFocus {
+				b.WriteString(styleInputActive.Width(m.width - 6).Render(display) + "\n\n")
+			} else {
+				b.WriteString(styleInputInactive.Width(m.width - 6).Render(display) + "\n\n")
+			}
+		} else if i == m.argFocus {
 			b.WriteString(styleInputActive.Width(m.width - 6).Render(m.argInputs[i].View()) + "\n\n")
 		} else {
 			b.WriteString(styleInputInactive.Width(m.width - 6).Render(m.argInputs[i].View()) + "\n\n")
