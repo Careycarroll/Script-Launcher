@@ -14,11 +14,12 @@ import (
 // ── Serialisable types for the frontend ──────────────────────────────────────
 
 type ArgData struct {
-	Label      string `json:"label"`
-	Default    string `json:"default"`
-	FilePicker bool   `json:"filePicker"`
-	DirPicker  bool   `json:"dirPicker"`
-	MultiFile  bool   `json:"multiFile"`
+	Label      string   `json:"label"`
+	Default    string   `json:"default"`
+	FilePicker bool     `json:"filePicker"`
+	DirPicker  bool     `json:"dirPicker"`
+	MultiFile  bool     `json:"multiFile"`
+	Options    []string `json:"options"`
 }
 
 type ScriptData struct {
@@ -74,6 +75,7 @@ func (a *App) GetGroups() []GroupData {
 					FilePicker: arg.FilePicker,
 					DirPicker:  arg.DirPicker,
 					MultiFile:  arg.MultiFile,
+					Options:    arg.Options,
 				})
 			}
 			gd.Scripts = append(gd.Scripts, sd)
@@ -81,6 +83,11 @@ func (a *App) GetGroups() []GroupData {
 		result = append(result, gd)
 	}
 	return result
+}
+
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // RunScript executes a script by group/script index with the provided args.
@@ -95,20 +102,39 @@ func (a *App) RunScript(groupIdx int, scriptIdx int, args []string) RunResult {
 	s := registry.Groups[groupIdx].Scripts[scriptIdx]
 
 	// Separate workdir from positional args
+	var flags []string
 	var positional []string
 	workDir := ""
 	for i, arg := range args {
-		if i < len(s.ArgDefs) && s.ArgDefs[i].SetWorkDir {
+		if i < len(s.ArgDefs) && s.ArgDefs[i].SetWorkDir && isDir(arg) {
 			workDir = arg
 		} else if arg != "" {
-			positional = append(positional, arg)
+			if i < len(s.ArgDefs) && s.ArgDefs[i].Flag != "" {
+				flags = append(flags, s.ArgDefs[i].Flag, arg)
+			} else {
+				positional = append(positional, arg)
+			}
 		}
 	}
+	positional = append(flags, positional...)
 
 	cmd := exec.Command(s.Path, positional...)
 	cmd.Env = os.Environ()
 	if workDir != "" {
 		cmd.Dir = workDir
+	}
+
+	// Interactive scripts open in a new Terminal window
+	if s.Interactive {
+		script := `tell application "Terminal"
+	activate
+	do script "` + s.Path + `"
+end tell`
+		_, err := exec.Command("osascript", "-e", script).Output()
+		if err != nil {
+			return RunResult{Error: err.Error()}
+		}
+		return RunResult{Output: "Launched in Terminal"}
 	}
 
 	out, err := cmd.CombinedOutput()

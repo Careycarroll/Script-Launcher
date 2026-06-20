@@ -9,6 +9,8 @@ type Arg struct {
 	SetWorkDir bool
 	MultiFile  bool
 	BatchArgs  bool
+	Options    []string
+	Flag       string
 }
 
 // Script defines a single runnable tool.
@@ -86,7 +88,8 @@ var Groups = []Group{
 				Path:        "/Users/careycarroll/bin/pptx2pdf",
 				Help:        "Converts .pptx files to PDF using Microsoft PowerPoint. Queue individual files or add from Finder. All queued files are converted in one pass. Compresses at 150 DPI (ebook) by default. Requires PowerPoint and Ghostscript (brew install ghostscript).",
 				ArgDefs: []Arg{
-					{Label: "PPTX files", FilePicker: true, DirPicker: true, MultiFile: true, BatchArgs: true},
+					{Label: "PPTX files", FilePicker: true, DirPicker: true, MultiFile: true, BatchArgs: true, SetWorkDir: true},
+					{Label: "Compression", Default: "ebook", Flag: "-c", Options: []string{"screen", "ebook", "printer", "prepress", "default", "none"}},
 				},
 			},
 		},

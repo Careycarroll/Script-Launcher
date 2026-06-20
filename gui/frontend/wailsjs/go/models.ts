@@ -6,6 +6,7 @@ export namespace main {
 	    filePicker: boolean;
 	    dirPicker: boolean;
 	    multiFile: boolean;
+	    options: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ArgData(source);
@@ -18,6 +19,7 @@ export namespace main {
 	        this.filePicker = source["filePicker"];
 	        this.dirPicker = source["dirPicker"];
 	        this.multiFile = source["multiFile"];
+	        this.options = source["options"];
 	    }
 	}
 	export class ScriptData {
