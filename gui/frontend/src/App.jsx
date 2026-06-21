@@ -76,7 +76,7 @@ function App() {
     setOutput('');
 
     // Collect non-multiFile args using original indices
-    const nonMultiArgs = script.argDefs
+    const nonMultiArgs = (script.argDefs || [])
       .map((def, i) => (!def.multiFile && args[i] !== '' ? args[i] : null))
       .filter(a => a !== null);
 

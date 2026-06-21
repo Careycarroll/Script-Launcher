@@ -85,6 +85,7 @@ func (a *App) GetGroups() []GroupData {
 	return result
 }
 
+// isDir returns true if the given path is a directory.
 func isDir(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.IsDir()
@@ -101,40 +102,45 @@ func (a *App) RunScript(groupIdx int, scriptIdx int, args []string) RunResult {
 	}
 	s := registry.Groups[groupIdx].Scripts[scriptIdx]
 
-	// Separate workdir from positional args
+	// Interactive scripts open in a new Terminal window via .command file
+	if s.Interactive {
+		cmdFile := "/tmp/run_script.command"
+		content := "#!/bin/bash\n" +
+			"export PATH=$PATH:/usr/local/bin:/opt/homebrew/bin:/Users/careycarroll/bin\n" +
+			s.Path + "\n"
+		if err := os.WriteFile(cmdFile, []byte(content), 0755); err != nil {
+			return RunResult{Error: "failed to write command file: " + err.Error()}
+		}
+		cmd := exec.Command("open", cmdFile)
+		if err := cmd.Start(); err != nil {
+			return RunResult{Error: err.Error()}
+		}
+		go cmd.Wait()
+		return RunResult{Output: "Launched in Terminal"}
+	}
+
+	// Build flags and positional args
 	var flags []string
 	var positional []string
 	workDir := ""
 	for i, arg := range args {
+		if arg == "" {
+			continue
+		}
 		if i < len(s.ArgDefs) && s.ArgDefs[i].SetWorkDir && isDir(arg) {
 			workDir = arg
-		} else if arg != "" {
-			if i < len(s.ArgDefs) && s.ArgDefs[i].Flag != "" {
-				flags = append(flags, s.ArgDefs[i].Flag, arg)
-			} else {
-				positional = append(positional, arg)
-			}
+		} else if i < len(s.ArgDefs) && s.ArgDefs[i].Flag != "" {
+			flags = append(flags, s.ArgDefs[i].Flag, arg)
+		} else {
+			positional = append(positional, arg)
 		}
 	}
-	positional = append(flags, positional...)
+	allArgs := append(flags, positional...)
 
-	cmd := exec.Command(s.Path, positional...)
+	cmd := exec.Command(s.Path, allArgs...)
 	cmd.Env = os.Environ()
 	if workDir != "" {
 		cmd.Dir = workDir
-	}
-
-	// Interactive scripts open in a new Terminal window
-	if s.Interactive {
-		script := `tell application "Terminal"
-	activate
-	do script "` + s.Path + `"
-end tell`
-		_, err := exec.Command("osascript", "-e", script).Output()
-		if err != nil {
-			return RunResult{Error: err.Error()}
-		}
-		return RunResult{Output: "Launched in Terminal"}
 	}
 
 	out, err := cmd.CombinedOutput()

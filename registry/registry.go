@@ -71,7 +71,19 @@ var Groups = []Group{
 		},
 	},
 	{
-		Name: "Documents",
+		Name: "Video",
+		Scripts: []Script{
+			{
+				Name:        "Lecture Merge",
+				Description: "Merge Panopto lecture recordings into a single clean video",
+				Path:        "/Users/careycarroll/bin/lecture_merge",
+				Help:        "Auto-classifies 3 Panopto .mp4 files by audio and bitrate, normalizes audio to EBU R128 (-16 LUFS), optionally overlays screen recording as PiP, and outputs a named session file. Place 3 .mp4 files in the Video Staging folder before running.",
+				Interactive: true,
+			},
+		},
+	},
+	{
+			Name: "Documents",
 		Scripts: []Script{
 			{
 				Name:        "PDF → Text",
