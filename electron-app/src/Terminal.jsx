@@ -41,6 +41,9 @@ export default function TerminalPanel() {
     termRef.current = term;
     fitRef.current = fitAddon;
 
+    // ── Spawn default shell ─────────────────────────────────────────────────
+    window.electronAPI.PtyShell();
+
     // ── PTY output → terminal ───────────────────────────────────────────────
     window.electronAPI.onPtyOutput((data) => {
       term.write(data);

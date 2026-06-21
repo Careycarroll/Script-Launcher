@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   PickFolder: () => ipcRenderer.invoke('pick-folder'),
 
   // ── PTY / Terminal ────────────────────────────────────────────────────────
+  PtyShell: () => ipcRenderer.invoke('pty-shell'),
   PtyCreate: (scriptPath: string) => ipcRenderer.invoke('pty-create', scriptPath),
   PtyInput: (data: string) => ipcRenderer.send('pty-input', data),
   PtyResize: (cols: number, rows: number) => ipcRenderer.send('pty-resize', cols, rows),

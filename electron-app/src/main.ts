@@ -5,6 +5,13 @@ import path from 'path';
 import { execFile, spawn } from 'child_process';
 import fs from 'fs';
 
+// ── Bundled binary path ───────────────────────────────────────────────────────
+const bundledBin = app.isPackaged
+  ? path.join(process.resourcesPath, 'bin')
+  : path.join(app.getAppPath(), 'resources', 'bin');
+
+process.env.PATH = `${bundledBin}:${process.env.PATH}`;
+
 // ── Registry ──────────────────────────────────────────────────────────────────
 const registryPath = path.join(app.getAppPath(), 'registry.json');
 const groups = JSON.parse(fs.readFileSync(registryPath, 'utf-8'));
@@ -97,11 +104,45 @@ ipcMain.handle('pick-file', async (event) => {
 // ── PTY handlers ─────────────────────────────────────────────────────────
 let activePty: pty.IPty | null = null;
 
+ipcMain.handle('pty-shell', (event) => {
+  const shell = platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/zsh');
+  const env = {
+    ...process.env,
+    PATH: `${bundledBin}:/usr/local/bin:/opt/homebrew/bin:/Users/careycarroll/bin:${process.env.PATH}`,
+    TERM: 'xterm-256color',
+  };
+
+  if (activePty) {
+    activePty.kill();
+    activePty = null;
+  }
+
+  activePty = pty.spawn(shell, [], {
+    name: 'xterm-256color',
+    cols: 120,
+    rows: 40,
+    env,
+  });
+
+  const win = BrowserWindow.fromWebContents(event.sender);
+
+  activePty.onData((data) => {
+    win?.webContents.send('pty-output', data);
+  });
+
+  activePty.onExit(() => {
+    win?.webContents.send('pty-exit');
+    activePty = null;
+  });
+
+  return true;
+});
+
 ipcMain.handle('pty-create', (event, scriptPath: string) => {
   const shell = platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/zsh');
   const env = {
     ...process.env,
-    PATH: `/usr/local/bin:/opt/homebrew/bin:/Users/careycarroll/bin:${process.env.PATH}`,
+    PATH: `${bundledBin}:/usr/local/bin:/opt/homebrew/bin:/Users/careycarroll/bin:${process.env.PATH}`,
     TERM: 'xterm-256color',
   };
 
