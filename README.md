@@ -36,8 +36,14 @@ Script-Launcher/
 │   │   ├── preload.ts      # IPC bridge (security boundary)
 │   │   ├── renderer.tsx    # React entry point
 │   │   ├── App.jsx         # Shared React frontend
-│   │   └── App.css         # Shared styles
-│   ├── registry.json       # Script registry (symlink or copy)
+│   │   ├── App.css         # Shared styles
+│   │   └── Terminal.jsx    # xterm.js terminal component
+│   ├── resources/
+│   │   ├── bin/
+│   │   │   └── ffmpeg      # Bundled static binary (not in git — see electron README)
+│   │   └── python/
+│   │       └── venv/       # Bundled Python 3.13.5 + pymupdf
+│   ├── registry.json       # Script registry
 │   └── package.json
 ├── go.mod
 └── go.sum
@@ -48,12 +54,12 @@ Script-Launcher/
 ## Requirements
 
 ### All Frontends
-- **pdftotext** — `brew install poppler` (PDF → Text)
-- **Ghostscript** — `brew install ghostscript` (PPTX → PDF compression)
-- **ffmpeg** — `brew install ffmpeg` (Lecture Merge)
+- **ffmpeg** — `brew install ffmpeg` (Lecture Merge) — bundled in Electron full build
 - **Microsoft PowerPoint** — required for PPTX → PDF conversion
 
 ### TUI + GUI
+- **pdftotext** — `brew install poppler` (PDF → Text)
+- **Ghostscript** — `brew install ghostscript` (PPTX → PDF compression)
 - **Go** 1.22+
 - **Wails** v2 — `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
 - **Node.js** — for the React frontend (managed by Wails)
@@ -61,6 +67,7 @@ Script-Launcher/
 ### Electron
 - **Node.js** 18+
 - **npm** 9+
+- See [`electron-app/README.md`](electron-app/README.md) for full setup
 
 ---
 
@@ -185,7 +192,7 @@ Edit `electron-app/registry.json` — add a script object to the appropriate gro
 | `batchArgs` | Passes all queued files as args in one script call |
 | `options` | Renders a dropdown / left-right selector |
 | `flag` | Prepends a flag before the value (e.g. `-c ebook`) |
-| `interactive` | Launches script in a Terminal window |
+| `interactive` | Launches script in embedded terminal (Electron) or Terminal window (TUI/GUI) |
 
 ---
 
@@ -206,8 +213,15 @@ UNC Carolina Blue `#4B9CD3` and Navy `#13294B` paired with Tokyo Night.
 
 ## Backlog
 
-- [ ] Electron — xterm.js embedded terminal panel for interactive scripts
+- [ ] Electron — rewrite `pdf2txt` using bundled pymupdf (removes pdftotext dependency)
+- [ ] Electron — rewrite `pptx2pdf` compression using pymupdf (removes ghostscript dependency)
+- [ ] Electron — bundle pdftotext static binary or complete pymupdf migration
+- [ ] Electron — Lite build with ephemeral dependency downloads + consent dialog
+- [ ] Electron — Full build with all binaries bundled
+- [ ] Electron — Two build targets: `npm run make:lite` and `npm run make:full`
 - [ ] Electron — theme customization panel (CSS variable editor)
-- [ ] Electron — package as self-contained `.app`
+- [ ] Electron — OS-aware architecture (platform() checks, config file for paths)
+- [ ] Electron — PPTX → Text chaining (single script, full pipeline)
+- [ ] GUI — Add Vault Link end-to-end test
 - [ ] qpdf — bookmark creation script
-- [ ] Add Vault Link — end-to-end GUI test
+- [ ] manage_vault — restore key hints below menu options
