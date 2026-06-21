@@ -1,4 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import * as pty from 'node-pty';
+import { platform } from 'os';
 import path from 'path';
 import { execFile, spawn } from 'child_process';
 import fs from 'fs';
@@ -90,6 +92,56 @@ ipcMain.handle('pick-file', async (event) => {
   const win = BrowserWindow.fromWebContents(event.sender);
   const result = await dialog.showOpenDialog(win, { properties: ['openFile'] });
   return result.canceled ? '' : result.filePaths[0];
+});
+
+// ── PTY handlers ─────────────────────────────────────────────────────────
+let activePty: pty.IPty | null = null;
+
+ipcMain.handle('pty-create', (event, scriptPath: string) => {
+  const shell = platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/zsh');
+  const env = {
+    ...process.env,
+    PATH: `/usr/local/bin:/opt/homebrew/bin:/Users/careycarroll/bin:${process.env.PATH}`,
+    TERM: 'xterm-256color',
+  };
+
+  if (activePty) {
+    activePty.kill();
+    activePty = null;
+  }
+
+  activePty = pty.spawn(shell, ['-c', scriptPath], {
+    name: 'xterm-256color',
+    cols: 120,
+    rows: 40,
+    env,
+  });
+
+  const win = BrowserWindow.fromWebContents(event.sender);
+
+  activePty.onData((data) => {
+    win?.webContents.send('pty-output', data);
+  });
+
+  activePty.onExit(() => {
+    win?.webContents.send('pty-exit');
+    activePty = null;
+  });
+
+  return true;
+});
+
+ipcMain.on('pty-input', (_event, data: string) => {
+  activePty?.write(data);
+});
+
+ipcMain.on('pty-resize', (_event, cols: number, rows: number) => {
+  activePty?.resize(cols, rows);
+});
+
+ipcMain.on('pty-kill', () => {
+  activePty?.kill();
+  activePty = null;
 });
 
 ipcMain.handle('pick-folder', async (event) => {

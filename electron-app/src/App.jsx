@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-const { GetGroups, RunScript, PickFile, PickFolder } = window.electronAPI;
+const { GetGroups, RunScript, PickFile, PickFolder, PtyCreate } = window.electronAPI;
+import TerminalPanel from './Terminal';
 import './App.css';
 
 function App() {
@@ -10,6 +11,7 @@ function App() {
   const [queueMode, setQueueMode] = useState(null); // null | 'file' | 'folder'
   const [output, setOutput]       = useState('');
   const [status, setStatus]       = useState('idle'); // idle | running | success | error
+  const [activeTab, setActiveTab]   = useState('scripts'); // scripts | terminal
 
   useEffect(() => {
     GetGroups().then(setGroups);
@@ -84,6 +86,12 @@ function App() {
       ? [...fileQueue, ...nonMultiArgs]
       : args.filter(a => a !== '');
 
+    if (script.interactive) {
+      setActiveTab('terminal');
+      await PtyCreate(script.path);
+      setStatus('idle');
+      return;
+    }
     const result = await RunScript(selected.groupIdx, selected.scriptIdx, finalArgs);
 
     setOutput(result.output || result.error || '(no output)');
@@ -107,11 +115,18 @@ function App() {
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="app">
+    <div className="app-wrapper">
+      <header className="tab-bar">
+        <span className="tab-bar-title">⚡ Script Launcher</span>
+        <div className="tabs">
+          <button className={`tab ${activeTab === 'scripts' ? 'active' : ''}`} onClick={() => setActiveTab('scripts')}>Scripts</button>
+          <button className={`tab ${activeTab === 'terminal' ? 'active' : ''}`} onClick={() => setActiveTab('terminal')}>Terminal</button>
+        </div>
+      </header>
+      <div className="app" style={{ display: activeTab === 'scripts' ? 'flex' : 'none' }}>
 
       {/* ── Sidebar ──────────────────────────────────────────────────────── */}
       <nav className="sidebar">
-        <div className="sidebar-title">⚡ Script Launcher</div>
         {groups.map((group, gi) => (
           <div key={gi}>
             <div className="group-label">{group.name}</div>
@@ -249,6 +264,10 @@ function App() {
           </>
         )}
       </main>
+    </div>
+    <div className="terminal-tab" style={{ display: activeTab === 'terminal' ? 'flex' : 'none' }}>
+        <TerminalPanel />
+      </div>
     </div>
   );
 }
