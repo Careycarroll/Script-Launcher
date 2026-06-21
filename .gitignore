@@ -31,3 +31,4 @@ go.work.sum
 # .idea/
 # .vscode/
 scripttui
+electron-app/resources/bin/
