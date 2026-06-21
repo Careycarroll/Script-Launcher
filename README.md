@@ -1,6 +1,16 @@
 # ⚡ Script Launcher
 
-A dual-interface script launcher for macOS — a Bubble Tea TUI for terminal use and a Wails + React GUI for a native app experience. Both frontends share a single script registry, so adding a new script is a one-file change.
+A multi-interface script launcher for macOS — three frontends, one registry. Add a script once in `registry/registry.go` and it appears everywhere.
+
+---
+
+## Frontends
+
+| Frontend | Stack | Use Case |
+|---|---|---|
+| **TUI** | Go + Bubble Tea | Terminal sessions, SSH, lightweight |
+| **GUI** | Go + Wails + React | Native-feeling app, file pickers, quick access |
+| **Electron** | Electron + React + xterm.js | Full embedded terminal, interactive scripts in-app |
 
 ---
 
@@ -9,16 +19,26 @@ A dual-interface script launcher for macOS — a Bubble Tea TUI for terminal use
 ```
 Script-Launcher/
 ├── registry/
-│   └── registry.go     # Shared script definitions — edit this to add scripts
+│   └── registry.go         # Shared script definitions (TUI + GUI)
+├── registry.json            # Shared script definitions (Electron)
 ├── tui/
-│   └── main.go         # Bubble Tea terminal UI
+│   └── main.go             # Bubble Tea terminal UI
 ├── gui/
-│   ├── app.go          # Wails Go backend
-│   ├── main.go         # Wails app entry point
+│   ├── app.go              # Wails Go backend
+│   ├── main.go             # Wails app entry point
 │   └── frontend/
 │       └── src/
-│           ├── App.jsx # React frontend
-│           └── App.css # Styles (UNC × Tokyo Night palette)
+│           ├── App.jsx     # React frontend
+│           └── App.css     # Styles (UNC × Tokyo Night palette)
+├── electron-app/
+│   ├── src/
+│   │   ├── main.ts         # Electron main process + IPC handlers
+│   │   ├── preload.ts      # IPC bridge (security boundary)
+│   │   ├── renderer.tsx    # React entry point
+│   │   ├── App.jsx         # Shared React frontend
+│   │   └── App.css         # Shared styles
+│   ├── registry.json       # Script registry (symlink or copy)
+│   └── package.json
 ├── go.mod
 └── go.sum
 ```
@@ -27,30 +47,36 @@ Script-Launcher/
 
 ## Requirements
 
+### All Frontends
+- **pdftotext** — `brew install poppler` (PDF → Text)
+- **Ghostscript** — `brew install ghostscript` (PPTX → PDF compression)
+- **ffmpeg** — `brew install ffmpeg` (Lecture Merge)
+- **Microsoft PowerPoint** — required for PPTX → PDF conversion
+
+### TUI + GUI
 - **Go** 1.22+
 - **Wails** v2 — `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
 - **Node.js** — for the React frontend (managed by Wails)
-- **pdftotext** — `brew install poppler` (for PDF → Text)
-- **Ghostscript** — `brew install ghostscript` (for PPTX → PDF compression)
-- **ffmpeg** — `brew install ffmpeg` (for Lecture Merge)
-- **Microsoft PowerPoint** — required for PPTX → PDF conversion
+
+### Electron
+- **Node.js** 18+
+- **npm** 9+
 
 ---
 
-## Running the TUI
+## TUI
 
 ```bash
 go run ./tui/
 ```
 
-Or build a standalone binary:
-
+Build standalone binary:
 ```bash
 go build -o scripttui ./tui/
 ./scripttui
 ```
 
-### TUI Navigation
+### Navigation
 
 | Key | Action |
 |---|---|
@@ -65,19 +91,25 @@ go build -o scripttui ./tui/
 
 ---
 
-## Running the GUI
+## GUI (Wails)
 
-### Development (hot reload)
 ```bash
-cd gui && wails dev
+cd gui && wails dev        # Development with hot reload
+cd gui && wails build      # Production .app bundle
 ```
 
-### Production build
+Output: `gui/build/bin/gui.app`
+
+---
+
+## Electron
+
 ```bash
-cd gui && wails build
+cd electron-app && npm start    # Development
+cd electron-app && npm run make # Package as .app
 ```
 
-Output: `gui/build/bin/gui.app` — move to `/Applications` or double-click to launch.
+See [`electron-app/README.md`](electron-app/README.md) for full setup and usage.
 
 ---
 
@@ -98,17 +130,6 @@ Output: `gui/build/bin/gui.app` — move to `/Applications` or double-click to l
 |---|---|
 | **Lecture Merge** | Merge 3 Panopto lecture recordings into a single clean video |
 
-Lecture Merge auto-classifies three `.mp4` files by audio presence and bitrate, normalizes audio to EBU R128 (-16 LUFS) using two-pass loudnorm, optionally overlays the screen recording as a picture-in-picture at a selectable scale and position, and outputs a named session file.
-
-**Staging folder:** `~/Documents/Vault Management/Video Staging/`  
-**Output folder:** `~/Documents/Vault Management/Video Staging/output/`  
-**Archive folder:** `~/Documents/Vault Management/Video Staging/archive/`
-
-Place exactly 3 `.mp4` files in the staging folder before running. The script identifies:
-- **Audio source** — file with a real audio stream
-- **Wide angle** — silent file with bitrate ≥ 500 kbps
-- **Screen recording** — silent file with bitrate < 500 kbps
-
 ### Documents
 
 | Script | Description |
@@ -120,6 +141,7 @@ Place exactly 3 `.mp4` files in the staging folder before running. The script id
 
 ## Adding a New Script
 
+### TUI + GUI
 Edit `registry/registry.go` — add a `Script{}` block to an existing group or create a new one:
 
 ```go
@@ -135,22 +157,35 @@ Edit `registry/registry.go` — add a `Script{}` block to an existing group or c
 },
 ```
 
+### Electron
+Edit `electron-app/registry.json` — add a script object to the appropriate group:
+
+```json
+{
+  "name": "My Script",
+  "description": "Short description shown in the menu",
+  "path": "/Users/careycarroll/bin/my_script",
+  "help": "Longer description shown on the detail screen.",
+  "interactive": false,
+  "argDefs": [
+    { "label": "Input file", "filePicker": true },
+    { "label": "Mode", "default": "fast", "options": ["fast", "slow", "verbose"] }
+  ]
+}
+```
+
 ### Arg Field Reference
 
 | Field | Purpose |
 |---|---|
-| `FilePicker` | Opens a file picker dialog |
-| `DirPicker` | Opens a folder picker dialog |
-| `SetWorkDir` | Sets selected path as the script's working directory |
-| `MultiFile` | Enables a file/folder queue (multiple inputs) |
-| `BatchArgs` | Passes all queued files as args in one script call |
-| `Options` | Renders a dropdown / left-right selector |
-| `Flag` | Prepends a flag before the value (e.g. `-c ebook`) |
-| `Interactive` | Launches script in a Terminal window (TUI: takes over terminal) |
-
-**After editing the registry:**
-- TUI — changes apply immediately on next `go run ./tui/`
-- GUI — restart `wails dev` (registry is outside the watch directory)
+| `filePicker` | Opens a file picker dialog |
+| `dirPicker` | Opens a folder picker dialog |
+| `setWorkDir` | Sets selected path as the script's working directory |
+| `multiFile` | Enables a file/folder queue (multiple inputs) |
+| `batchArgs` | Passes all queued files as args in one script call |
+| `options` | Renders a dropdown / left-right selector |
+| `flag` | Prepends a flag before the value (e.g. `-c ebook`) |
+| `interactive` | Launches script in a Terminal window |
 
 ---
 
@@ -171,6 +206,8 @@ UNC Carolina Blue `#4B9CD3` and Navy `#13294B` paired with Tokyo Night.
 
 ## Backlog
 
+- [ ] Electron — xterm.js embedded terminal panel for interactive scripts
+- [ ] Electron — theme customization panel (CSS variable editor)
+- [ ] Electron — package as self-contained `.app`
+- [ ] qpdf — bookmark creation script
 - [ ] Add Vault Link — end-to-end GUI test
-- [ ] qpdf bookmark script — create/edit PDF bookmarks from heading structure
-- [ ] Electron rewrite — embedded xterm.js for interactive scripts, self-contained binary
