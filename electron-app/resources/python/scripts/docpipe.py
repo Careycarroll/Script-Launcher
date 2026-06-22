@@ -17,12 +17,20 @@ Batching:
   Stages declare an arity via Stage.multi_input.
     False (default) — 1 input → 1 output. Multiple inputs on the CLI are looped.
     True            — N inputs → 1 output. The stage receives the full list.
+                      --out is REQUIRED for multi_input stages (the output name
+                      cannot be inferred when N>1 inputs collapse to 1 output).
+
+Directory inputs are expanded in-place to their sorted contents, filtered to
+formats the first stage's source format declares as recognized extensions.
+This lets a user drop a folder of images and have it Just Work.
 
 CLI:
   docpipe --from pdf --to txt input.pdf
   docpipe --from pdf --to txt a.pdf b.pdf c.pdf       # batch: N→N
   docpipe --from pdf --to txt input.pdf --out output.txt
   docpipe --from pdf --to txt input.pdf --pdf-layout plain
+  docpipe --from images --to pdf img1.png img2.png --out combined.pdf
+  docpipe --from images --to pdf ~/scans/ --out scans.pdf
   docpipe --no-keep-intermediate ...     # delete intermediates (default: keep)
   docpipe --force                        # overwrite existing outputs
   docpipe --dry-run                      # print resolved chain, do not execute
@@ -75,6 +83,20 @@ class Stage:
         # All options for this stage are namespaced --<src>-<name>
         # e.g. pdf → txt's "layout" option becomes --pdf-layout
         return f"--{self.src}"
+
+
+# ─── Format → recognized extensions ───────────────────────────────────────────
+# Used for directory expansion: if a user passes a folder, only files matching
+# the source format's extensions are picked up. Keep these lowercase.
+
+FORMAT_EXTENSIONS: dict[str, set[str]] = {
+    "pdf":    {".pdf"},
+    "txt":    {".txt"},
+    "md":     {".md", ".markdown"},
+    "images": {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"},
+    "pptx":   {".pptx"},
+    "docx":   {".docx"},
+}
 
 
 # ─── Layout reconstruction (for pdf → txt layout mode) ────────────────────────
@@ -196,6 +218,79 @@ def stage_pdf_to_txt(input_path: Path, opts: dict, workdir: Path) -> Path:
     return output_path
 
 
+# Fixed page sizes in points (1 pt = 1/72 inch). Width × height, portrait.
+_PAGE_SIZES_PT: dict[str, tuple[float, float]] = {
+    "letter": (612.0, 792.0),    # 8.5 × 11 in
+    "a4":     (595.28, 841.89),  # 210 × 297 mm
+}
+
+
+def stage_images_to_pdf(inputs: list[Path], opts: dict, workdir: Path) -> Path:
+    """
+    Combine images into a single PDF, one page per image, in the order given.
+
+    Multi-input stage (N images → 1 PDF). Output name comes from --out; the
+    CLI enforces that --out is provided for multi_input stages.
+
+    Options:
+      page_size: 'auto' (default) — each page sized to its own image.
+                 'letter' / 'a4' — fixed page size; image fitted via 'contain'
+                 (whole image visible, letterbox margins, no distortion).
+    """
+    page_size = opts.get("page_size", "auto")
+    # workdir IS the output path for multi_input stages — set by run_chain
+    output_path = workdir
+
+    out_doc = pymupdf.open()
+    try:
+        for img_path in inputs:
+            # Open as image; convert to single-page PDF bytes via PyMuPDF's
+            # native image→PDF conversion (preserves resolution, no re-encode).
+            img_doc = pymupdf.open(img_path)
+            try:
+                pdf_bytes = img_doc.convert_to_pdf()
+            finally:
+                img_doc.close()
+
+            img_pdf = pymupdf.open("pdf", pdf_bytes)
+            try:
+                img_page = img_pdf[0]
+                img_w, img_h = img_page.rect.width, img_page.rect.height
+
+                if page_size == "auto":
+                    # Page exactly matches image dimensions
+                    new_page = out_doc.new_page(width=img_w, height=img_h)
+                    new_page.show_pdf_page(new_page.rect, img_pdf, 0)
+                else:
+                    # Fixed page size with 'contain' fit
+                    pw, ph = _PAGE_SIZES_PT[page_size]
+                    # Auto-rotate: if image is landscape and page is portrait
+                    # (or vice versa), swap the page dimensions to match
+                    img_landscape  = img_w > img_h
+                    page_landscape = pw > ph
+                    if img_landscape != page_landscape:
+                        pw, ph = ph, pw
+
+                    new_page = out_doc.new_page(width=pw, height=ph)
+
+                    # Contain: scale to fit within page, preserve aspect ratio
+                    scale = min(pw / img_w, ph / img_h)
+                    draw_w = img_w * scale
+                    draw_h = img_h * scale
+                    x0 = (pw - draw_w) / 2
+                    y0 = (ph - draw_h) / 2
+                    target_rect = pymupdf.Rect(x0, y0, x0 + draw_w, y0 + draw_h)
+                    new_page.show_pdf_page(target_rect, img_pdf, 0)
+            finally:
+                img_pdf.close()
+
+        out_doc.save(output_path)
+    finally:
+        out_doc.close()
+
+    return output_path
+
+
 # ─── Stage registry ───────────────────────────────────────────────────────────
 
 STAGES: dict[str, Stage] = {
@@ -213,8 +308,21 @@ STAGES: dict[str, Stage] = {
             ),
         ],
     ),
+    "images_to_pdf": Stage(
+        src="images",
+        dst="pdf",
+        fn=stage_images_to_pdf,
+        multi_input=True,
+        options=[
+            StageOption(
+                name="page-size",
+                choices=["auto", "letter", "a4"],
+                default="auto",
+                help="auto (default) sizes each page to its image. letter/a4 use fixed page size with the image scaled to fit (contain, no distortion).",
+            ),
+        ],
+    ),
     # Stubs — wired in subsequent slices:
-    # "images_to_pdf": Stage(..., multi_input=True),
     # "docx_to_pdf":   Stage(...),
     # "pptx_to_pdf":   Stage(...),
     # "pdf_to_md":     Stage(...),
@@ -235,330 +343,395 @@ def route(src: str, dst: str) -> list[Stage]:
         raise ValueError(f"Source and destination are identical: {src}")
 
     queue: deque[tuple[str, list[str]]] = deque([(src, [src])])
-    seen = {src}
+    visited: set[str] = {src}
+
     while queue:
-        node, path = queue.popleft()
-        for nxt in EDGES.get(node, []):
+        current, path = queue.popleft()
+        for nxt in EDGES.get(current, []):
+            if nxt in visited:
+                continue
+            new_path = path + [nxt]
             if nxt == dst:
-                full_path = path + [nxt]
-                return [STAGES[f"{full_path[i]}_to_{full_path[i+1]}"]
-                        for i in range(len(full_path) - 1)]
-            if nxt not in seen:
-                seen.add(nxt)
-                queue.append((nxt, path + [nxt]))
-    raise ValueError(f"No conversion path from {src} to {dst}")
+                return [STAGES[f"{new_path[i]}_to_{new_path[i+1]}"]
+                        for i in range(len(new_path) - 1)]
+            visited.add(nxt)
+            queue.append((nxt, new_path))
+
+    raise ValueError(f"No conversion path: {src} → {dst}")
 
 
-# ─── Output path resolution ───────────────────────────────────────────────────
+# ─── Input expansion ──────────────────────────────────────────────────────────
 
-def _resolve_output_path(desired: Path, force: bool) -> Path:
+def expand_inputs(raw_inputs: list[str], src_format: str) -> list[Path]:
     """
-    If desired path exists and --force is not set, append _1, _2, ... until
-    we find a free name. Returns the final path to use.
+    Resolve argv input strings to a flat list of file paths.
+
+    - File paths pass through verified to exist
+    - Directory paths expand to their sorted contents, filtered by the source
+      format's recognized extensions
+
+    Raises FileNotFoundError or ValueError on bad input.
     """
-    if force or not desired.exists():
-        return desired
-    stem, suffix, parent = desired.stem, desired.suffix, desired.parent
+    extensions = FORMAT_EXTENSIONS.get(src_format, set())
+    result: list[Path] = []
+
+    for raw in raw_inputs:
+        p = Path(raw).expanduser().resolve()
+        if not p.exists():
+            raise FileNotFoundError(f"Input not found: {raw}")
+
+        if p.is_dir():
+            if not extensions:
+                raise ValueError(
+                    f"Directory input requires known extensions for format "
+                    f"'{src_format}', but none registered."
+                )
+            matches = sorted(
+                child for child in p.iterdir()
+                if child.is_file() and child.suffix.lower() in extensions
+            )
+            if not matches:
+                raise ValueError(
+                    f"No {src_format} files found in directory: {p}"
+                )
+            result.extend(matches)
+        else:
+            # Accept any file the user explicitly named, even if extension
+            # doesn't match — they know what they're doing.
+            result.append(p)
+
+    return result
+
+
+# ─── Output naming ────────────────────────────────────────────────────────────
+
+def _resolve_output_path(stem: str, ext: str, parent: Path, force: bool) -> Path:
+    """
+    Build an output path at parent/stem.ext. If it exists and force is False,
+    append _1, _2, ... until free.
+    """
+    candidate = parent / f"{stem}.{ext}"
+    if force or not candidate.exists():
+        return candidate
     i = 1
     while True:
-        candidate = parent / f"{stem}_{i}{suffix}"
+        candidate = parent / f"{stem}_{i}.{ext}"
         if not candidate.exists():
             return candidate
         i += 1
 
 
-# ─── Chain execution ──────────────────────────────────────────────────────────
+# ─── Execution ────────────────────────────────────────────────────────────────
+
+def _opts_for_stage(stage: Stage, parsed_args: argparse.Namespace) -> dict:
+    """Pull this stage's options out of parsed argparse namespace."""
+    opts: dict[str, str] = {}
+    for opt in stage.options:
+        # CLI flag --pdf-layout → argparse attribute pdf_layout
+        attr = f"{stage.src}_{opt.name}".replace("-", "_")
+        opts[opt.name.replace("-", "_")] = getattr(parsed_args, attr, opt.default)
+    return opts
+
 
 def _run_single_chain(
     input_path: Path,
     chain: list[Stage],
-    stage_opts: dict[str, dict],
+    parsed_args: argparse.Namespace,
     final_out: Path | None,
     keep_intermediate: bool,
     force: bool,
 ) -> Path:
     """
-    Run a single-input chain (1 input → 1 output). Intermediate stage outputs
-    land in the input's directory when keep_intermediate, else in a temp dir.
+    Run a chain where every stage is single-input (N→N batching path).
+    Each stage produces 1 output that becomes the next stage's input.
     """
     print(f"📄 {input_path.name}", file=sys.stderr)
+    t_start = time.monotonic()
 
+    current = input_path
     if keep_intermediate:
-        workdir = input_path.parent
-        tmp_ctx = None
+        # Write intermediates and final output to input's directory
+        parent = input_path.parent
     else:
-        tmp_ctx = tempfile.TemporaryDirectory()
-        workdir = Path(tmp_ctx.name)
+        parent = Path(tempfile.mkdtemp(prefix="docpipe_"))
 
-    try:
-        current = input_path
-        last_output: Path = current
-        for i, stage in enumerate(chain):
-            is_last = (i == len(chain) - 1)
-            t0 = time.time()
-            print(f"   → {stage.name}", file=sys.stderr)
-            opts = stage_opts.get(stage.name, {})
+    for i, stage in enumerate(chain):
+        print(f"   → {stage.name}", file=sys.stderr)
+        is_last = i == len(chain) - 1
 
-            # Stage writes to workdir with its natural filename. We rename
-            # afterward only if this is the last stage and the caller passed
-            # an explicit --out, or if the desired path collides.
-            produced = stage.fn(current, opts, workdir)
+        if is_last and final_out is not None:
+            target = final_out
+            target.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            target_parent = input_path.parent if (is_last and keep_intermediate) else parent
+            target = _resolve_output_path(current.stem, stage.dst, target_parent, force)
 
-            if is_last:
-                desired = final_out if final_out else (input_path.parent / produced.name)
-                target = _resolve_output_path(desired, force)
-                if produced != target:
-                    produced.replace(target)
-                    produced = target
-            else:
-                # Intermediate: if it landed in workdir matching an existing
-                # file in input's dir (keep_intermediate=True case), resolve
-                # the collision so we don't clobber.
-                if keep_intermediate:
-                    target = _resolve_output_path(produced, force)
-                    if produced != target:
-                        produced.replace(target)
-                        produced = target
+        opts = _opts_for_stage(stage, parsed_args)
+        produced = stage.fn(current, opts, target)
+        # Stage may return a different path than `target` if it added a suffix;
+        # honor whatever it actually wrote.
+        current = produced
 
-            dt = time.time() - t0
-            print(f"   ✅ {produced.name}  ({dt:.1f}s)", file=sys.stderr)
-            current = produced
-            last_output = produced
-
-        return last_output
-    finally:
-        if tmp_ctx is not None:
-            tmp_ctx.cleanup()
+    elapsed = time.monotonic() - t_start
+    print(f"   ✅ {current.name}  ({elapsed:.1f}s)", file=sys.stderr)
+    return current
 
 
 def _run_multi_chain(
-    input_paths: list[Path],
+    inputs: list[Path],
     chain: list[Stage],
-    stage_opts: dict[str, dict],
-    final_out: Path | None,
+    parsed_args: argparse.Namespace,
+    final_out: Path,
     keep_intermediate: bool,
     force: bool,
 ) -> Path:
     """
-    Run a chain whose first stage is multi_input (N → 1). After the first
-    stage produces a single output, the rest of the chain runs single-input.
+    Run a chain whose FIRST stage is multi_input (N→1 collapse).
+    The collapse happens at stage 0; subsequent stages are single-input.
     """
     first = chain[0]
-    print(f"📚 {len(input_paths)} files → {first.dst}", file=sys.stderr)
+    rest = chain[1:]
 
-    base_dir = input_paths[0].parent
+    print(f"📦 {len(inputs)} inputs → {first.dst}", file=sys.stderr)
+    t_start = time.monotonic()
+
     if keep_intermediate:
-        workdir = base_dir
-        tmp_ctx = None
+        parent = final_out.parent
     else:
-        tmp_ctx = tempfile.TemporaryDirectory()
-        workdir = Path(tmp_ctx.name)
+        parent = Path(tempfile.mkdtemp(prefix="docpipe_"))
 
-    try:
-        opts = stage_opts.get(first.name, {})
-        t0 = time.time()
-        print(f"   → {first.name}", file=sys.stderr)
-        produced = first.fn(input_paths, opts, workdir)
+    # First stage produces the collapsed output.
+    # If there are no further stages, write directly to final_out;
+    # otherwise write to an intermediate path.
+    if not rest:
+        first_target = final_out
+        first_target.parent.mkdir(parents=True, exist_ok=True)
+    else:
+        first_target = _resolve_output_path(
+            final_out.stem, first.dst, parent, force
+        )
 
-        is_last = (len(chain) == 1)
+    print(f"   → {first.name}", file=sys.stderr)
+    opts = _opts_for_stage(first, parsed_args)
+    current = first.fn(inputs, opts, first_target)
+
+    # Remaining single-input stages
+    for i, stage in enumerate(rest):
+        print(f"   → {stage.name}", file=sys.stderr)
+        is_last = i == len(rest) - 1
         if is_last:
-            desired = final_out if final_out else (base_dir / produced.name)
-            target = _resolve_output_path(desired, force)
-            if produced != target:
-                produced.replace(target)
-                produced = target
-        elif keep_intermediate:
-            target = _resolve_output_path(produced, force)
-            if produced != target:
-                produced.replace(target)
-                produced = target
+            target = final_out
+            target.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            target = _resolve_output_path(current.stem, stage.dst, parent, force)
+        opts = _opts_for_stage(stage, parsed_args)
+        current = stage.fn(current, opts, target)
 
-        dt = time.time() - t0
-        print(f"   ✅ {produced.name}  ({dt:.1f}s)", file=sys.stderr)
-
-        # Remaining stages run single-input from the merged output
-        if len(chain) > 1:
-            return _run_single_chain(
-                produced, chain[1:], stage_opts, final_out,
-                keep_intermediate, force,
-            )
-        return produced
-    finally:
-        if tmp_ctx is not None:
-            tmp_ctx.cleanup()
-
-
-# ─── Introspection ────────────────────────────────────────────────────────────
-
-def _introspection_payload() -> dict:
-    formats: set[str] = set()
-    edges_out = []
-    for stage in STAGES.values():
-        formats.add(stage.src)
-        formats.add(stage.dst)
-        edges_out.append({
-            "from": stage.src,
-            "to": stage.dst,
-            "multi_input": stage.multi_input,
-            "options": [
-                {
-                    "name": o.name,
-                    "flag": f"{stage.flag_prefix}-{o.name}",
-                    "choices": o.choices,
-                    "default": o.default,
-                    "help": o.help,
-                }
-                for o in stage.options
-            ],
-        })
-    return {
-        "formats": sorted(formats),
-        "edges": edges_out,
-        "version": 2,
-    }
+    elapsed = time.monotonic() - t_start
+    print(f"   ✅ {current.name}  ({elapsed:.1f}s)", file=sys.stderr)
+    return current
 
 
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 
-def _build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
         prog="docpipe",
         description="Unified document conversion pipeline.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    all_formats = sorted({s.src for s in STAGES.values()} |
-                         {s.dst for s in STAGES.values()})
+    all_formats = sorted(set(EDGES.keys()) | {d for ds in EDGES.values() for d in ds})
 
-    p.add_argument("--from", dest="src", choices=all_formats,
-                   help="Source format")
-    p.add_argument("--to", dest="dst", choices=all_formats,
-                   help="Destination format")
-    p.add_argument("--out", type=Path, default=None,
-                   help="Explicit output path (invalid with multiple inputs in N→N batches)")
-    p.add_argument("--force", action="store_true",
-                   help="Overwrite existing output files instead of incrementing")
-    p.add_argument("--dry-run", action="store_true",
-                   help="Print the resolved chain and exit without executing")
-    p.add_argument("--introspect", action="store_true",
-                   help="Emit the conversion graph + stage options as JSON")
+    parser.add_argument("--from", dest="from_fmt", choices=all_formats,
+                        help="Source format")
+    parser.add_argument("--to",   dest="to_fmt",   choices=all_formats,
+                        help="Destination format")
+    parser.add_argument("--out", type=Path, default=None,
+                        help="Output path (required for multi-input stages "
+                             "like images→pdf; rejected when batching N→N).")
+    parser.add_argument("--force", action="store_true",
+                        help="Overwrite existing output files.")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Print resolved chain and exit without converting.")
+    parser.add_argument("--introspect", action="store_true",
+                        help="Print graph + options as JSON and exit.")
 
-    # Default keep_intermediate=True; --no-keep-intermediate flips it off
-    p.add_argument("--keep-intermediate", dest="keep_intermediate",
-                   action="store_true", default=True,
-                   help="Keep intermediate stage outputs alongside input (default)")
-    p.add_argument("--no-keep-intermediate", dest="keep_intermediate",
-                   action="store_false",
-                   help="Delete intermediate stage outputs after run")
+    # Intermediate handling — default keep (per project decision)
+    intermediate = parser.add_mutually_exclusive_group()
+    intermediate.add_argument("--keep-intermediate", dest="keep_intermediate",
+                              action="store_true", default=True,
+                              help="Keep intermediate files alongside input "
+                                   "(default).")
+    intermediate.add_argument("--no-keep-intermediate", dest="keep_intermediate",
+                              action="store_false",
+                              help="Delete intermediate files (use temp dir).")
 
-    # Per-stage namespaced options
+    # Auto-register every stage's options as namespaced flags
     for stage in STAGES.values():
         for opt in stage.options:
-            p.add_argument(
-                f"{stage.flag_prefix}-{opt.name}",
+            flag = f"{stage.flag_prefix}-{opt.name}"
+            parser.add_argument(
+                flag,
                 choices=opt.choices,
                 default=opt.default,
                 help=opt.help,
             )
 
-    p.add_argument("input", nargs="*", type=Path,
-                   help="One or more input files")
-    return p
+    parser.add_argument("inputs", nargs="*", help="Input file(s) or directory.")
+    return parser
 
 
-def _collect_stage_opts(args: argparse.Namespace) -> dict[str, dict]:
-    """Pull stage-namespaced flags out of the parsed args into per-stage dicts."""
-    out: dict[str, dict] = {}
-    for stage in STAGES.values():
-        out[stage.name] = {}
-        for opt in stage.options:
-            attr = f"{stage.src}_{opt.name}".replace("-", "_")
-            if hasattr(args, attr):
-                out[stage.name][opt.name] = getattr(args, attr)
-    return out
+def cmd_introspect() -> int:
+    payload = {
+        "formats": sorted(set(EDGES.keys()) | {d for ds in EDGES.values() for d in ds}),
+        "edges": [
+            {
+                "from": s.src,
+                "to": s.dst,
+                "multi_input": s.multi_input,
+                "options": [
+                    {
+                        "name": o.name,
+                        "flag": f"{s.flag_prefix}-{o.name}",
+                        "choices": o.choices,
+                        "default": o.default,
+                        "help": o.help,
+                    }
+                    for o in s.options
+                ],
+            }
+            for s in STAGES.values()
+        ],
+        "version": 2,
+    }
+    print(json.dumps(payload, indent=2))
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = _build_parser()
+    parser = build_parser()
     args = parser.parse_args(argv)
 
     if args.introspect:
-        print(json.dumps(_introspection_payload(), indent=2))
-        return 0
+        return cmd_introspect()
 
-    if not args.src or not args.dst:
-        parser.error("--from and --to are required (unless --introspect)")
-    if not args.input:
-        parser.error("at least one input file is required")
-
-    # Validate inputs
-    for ip in args.input:
-        if not ip.exists():
-            print(f"❌ Input not found: {ip}", file=sys.stderr)
-            return 1
-
-    # Resolve chain
-    try:
-        chain = route(args.src, args.dst)
-    except ValueError as e:
-        print(f"❌ {e}", file=sys.stderr)
-        return 1
-
-    stage_opts = _collect_stage_opts(args)
-
-    if args.dry_run:
-        print(f"Chain: {args.src} → {args.dst}")
-        for stage in chain:
-            print(f"  {stage.name}  {stage_opts.get(stage.name, {})}")
-        for ip in args.input:
-            print(f"Input:  {ip}")
-        return 0
-
-    first_is_multi = chain[0].multi_input
-
-    # --out is valid only when output is genuinely 1 file:
-    #  - single input + single-input chain
-    #  - any number of inputs + multi-input first stage (N→1)
-    if args.out and len(args.input) > 1 and not first_is_multi:
-        print("❌ --out is invalid when batching multiple inputs through a "
-              "single-input chain (each input produces its own output).",
+    if not args.from_fmt or not args.to_fmt:
+        print("docpipe: --from and --to are required (or use --introspect)",
               file=sys.stderr)
         return 1
 
-    failed = 0
-    final_paths: list[Path] = []
+    try:
+        chain = route(args.from_fmt, args.to_fmt)
+    except ValueError as e:
+        print(f"docpipe: {e}", file=sys.stderr)
+        return 1
+
+    if not args.inputs:
+        print("docpipe: at least one input is required", file=sys.stderr)
+        return 1
 
     try:
-        if first_is_multi:
-            # N → 1: all inputs feed the first stage at once
-            out = _run_multi_chain(
-                args.input, chain, stage_opts, args.out,
-                args.keep_intermediate, args.force,
-            )
-            final_paths.append(out)
-        else:
-            # N → N: loop, each input runs independently
-            for ip in args.input:
-                try:
-                    out = _run_single_chain(
-                        ip, chain, stage_opts, args.out,
-                        args.keep_intermediate, args.force,
-                    )
-                    final_paths.append(out)
-                except Exception as e:
-                    print(f"   ❌ failed: {e}", file=sys.stderr)
-                    failed += 1
-    except Exception as e:
-        print(f"❌ Fatal: {e}", file=sys.stderr)
-        return 2
+        inputs = expand_inputs(args.inputs, args.from_fmt)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"docpipe: {e}", file=sys.stderr)
+        return 1
 
-    # Emit final paths to stdout (one per line) for caller capture
-    for p in final_paths:
+    first_stage = chain[0]
+    is_multi = first_stage.multi_input
+
+    # --out semantics:
+    #   multi_input stage  → REQUIRED (N inputs collapse to 1 output)
+    #   single-input + 1 input  → optional, overrides default naming
+    #   single-input + N inputs (batching N→N) → REJECTED (ambiguous)
+    if is_multi:
+        if args.out is None:
+            print(f"docpipe: --out is required for {first_stage.name} "
+                  f"(N inputs → 1 output)", file=sys.stderr)
+            return 1
+    else:
+        if len(inputs) > 1 and args.out is not None:
+            print("docpipe: --out is incompatible with multiple inputs when "
+                  "each input produces its own output. Drop --out, or pass a "
+                  "single input.", file=sys.stderr)
+            return 1
+
+    # Resolve final_out for multi_input case
+    final_out: Path | None = None
+    if is_multi:
+        out = args.out.expanduser()
+        if not out.is_absolute():
+            # Resolve relative to first input's parent
+            out = inputs[0].parent / out
+        # If user gave an existing directory, that's an error — we need a filename
+        if out.exists() and out.is_dir():
+            print(f"docpipe: --out must be a filename, not a directory: {out}",
+                  file=sys.stderr)
+            return 1
+        if out.exists() and not args.force:
+            out = _resolve_output_path(out.stem, out.suffix.lstrip("."),
+                                       out.parent, force=False)
+        final_out = out
+    else:
+        if args.out is not None:
+            final_out = args.out.expanduser()
+            if not final_out.is_absolute():
+                final_out = inputs[0].parent / final_out
+
+    # ── Dry run ──
+    if args.dry_run:
+        print(f"Chain: {' → '.join([s.src for s in chain] + [chain[-1].dst])}")
+        for s in chain:
+            print(f"  {s.name}  {_opts_for_stage(s, args)}")
+        if is_multi:
+            print(f"Inputs ({len(inputs)}):")
+            for p in inputs:
+                print(f"  {p}")
+            print(f"Output: {final_out}")
+        else:
+            for p in inputs:
+                print(f"Input:  {p}")
+            if final_out:
+                print(f"Output: {final_out}")
+        return 0
+
+    # ── Execute ──
+    if is_multi:
+        try:
+            produced = _run_multi_chain(
+                inputs, chain, args,
+                final_out=final_out,
+                keep_intermediate=args.keep_intermediate,
+                force=args.force,
+            )
+            print(produced)
+            return 0
+        except Exception as e:
+            print(f"   ✗ failed: {e}", file=sys.stderr)
+            return 2
+
+    # Single-input chain: batch N→N
+    ok = 0
+    failed = 0
+    produced_paths: list[Path] = []
+    for input_path in inputs:
+        try:
+            produced = _run_single_chain(
+                input_path, chain, args,
+                final_out=final_out if len(inputs) == 1 else None,
+                keep_intermediate=args.keep_intermediate,
+                force=args.force,
+            )
+            produced_paths.append(produced)
+            ok += 1
+        except Exception as e:
+            print(f"   ✗ {input_path.name}: {e}", file=sys.stderr)
+            failed += 1
+
+    for p in produced_paths:
         print(p)
 
-    # Summary on stderr when batching
-    total = len(args.input) if not first_is_multi else 1
-    if total > 1 or failed:
-        ok = len(final_paths)
+    if len(inputs) > 1:
         print(f"── {ok} ok, {failed} failed", file=sys.stderr)
 
     return 0 if failed == 0 else 2

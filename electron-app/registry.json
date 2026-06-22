@@ -69,6 +69,47 @@
             ]
           }
         ]
+      },
+      {
+        "name": "Images → PDF",
+        "description": "Combine images into a single PDF",
+        "path": "python/scripts/docpipe.py",
+        "runtime": "python",
+        "help": "Combines PNG, JPG, JPEG, TIFF, or BMP images into a single PDF in the order queued. Add files individually or pick a folder to include all images in it (sorted alphabetically). Output goes to the folder of the first image.",
+        "interactive": false,
+        "argDefs": [
+          {
+            "flag": "--from",
+            "default": "images",
+            "hidden": true
+          },
+          {
+            "flag": "--to",
+            "default": "pdf",
+            "hidden": true
+          },
+          {
+            "label": "Images (files or folder)",
+            "filePicker": true,
+            "dirPicker": true,
+            "multiFile": true
+          },
+          {
+            "label": "Output filename",
+            "flag": "--out",
+            "default": "combined.pdf"
+          },
+          {
+            "label": "Page size",
+            "flag": "--images-page-size",
+            "default": "auto",
+            "options": [
+              "auto",
+              "letter",
+              "a4"
+            ]
+          }
+        ]
       }
     ]
   }
