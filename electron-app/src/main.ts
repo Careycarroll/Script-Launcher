@@ -105,9 +105,15 @@ ipcMain.handle('run-script', (_event, groupIdx: number, scriptIdx: number, args:
   });
 });
 
-ipcMain.handle('pick-file', async (event) => {
+ipcMain.handle('pick-file', async (event, extensions?: string[]) => {
   const win = BrowserWindow.fromWebContents(event.sender);
-  const result = await dialog.showOpenDialog(win, { properties: ['openFile'] });
+  const filters = extensions && extensions.length > 0
+    ? [{ name: 'Allowed', extensions }]
+    : undefined;
+  const result = await dialog.showOpenDialog(win, {
+    properties: ['openFile'],
+    filters,
+  });
   return result.canceled ? '' : result.filePaths[0];
 });
 

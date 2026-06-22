@@ -57,7 +57,10 @@
           {
             "label": "PDF files",
             "filePicker": true,
-            "multiFile": true
+            "multiFile": true,
+            "extensions": [
+              "pdf"
+            ]
           },
           {
             "label": "Layout",
@@ -92,7 +95,15 @@
             "label": "Images (files or folder)",
             "filePicker": true,
             "dirPicker": true,
-            "multiFile": true
+            "multiFile": true,
+            "extensions": [
+              "png",
+              "jpg",
+              "jpeg",
+              "tif",
+              "tiff",
+              "bmp"
+            ]
           },
           {
             "label": "Output filename",
@@ -107,6 +118,44 @@
               "auto",
               "letter",
               "a4"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "PPTX → PDF",
+        "description": "Convert PowerPoint presentations to PDF",
+        "path": "python/scripts/docpipe.py",
+        "runtime": "python",
+        "help": "Converts .pptx files to PDF using Microsoft PowerPoint. Queue files individually or pick a folder. Compression (default: yes) optimizes file size via pymupdf — toggle off to keep PowerPoint's raw output. Requires Microsoft PowerPoint installed. macOS only for now.",
+        "interactive": false,
+        "argDefs": [
+          {
+            "flag": "--from",
+            "default": "pptx",
+            "hidden": true
+          },
+          {
+            "flag": "--to",
+            "default": "pdf",
+            "hidden": true
+          },
+          {
+            "label": "PPTX files (files or folder)",
+            "filePicker": true,
+            "dirPicker": true,
+            "multiFile": true,
+            "extensions": [
+              "pptx"
+            ]
+          },
+          {
+            "label": "Compress output",
+            "flag": "--pptx-compress",
+            "default": "yes",
+            "options": [
+              "yes",
+              "no"
             ]
           }
         ]

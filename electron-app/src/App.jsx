@@ -46,7 +46,8 @@ function App() {
 
   // ── File / folder pickers ───────────────────────────────────────────────────
   async function pickFile(argIdx) {
-    const path = await PickFile();
+    const def = script.argDefs?.[argIdx];
+    const path = await PickFile(def?.extensions);
     if (path) setArg(argIdx, path);
   }
 
@@ -56,7 +57,8 @@ function App() {
   }
 
   async function addToQueue(dirMode) {
-    const path = dirMode ? await PickFolder() : await PickFile();
+    const multiDef = script.argDefs?.find(d => d.multiFile);
+    const path = dirMode ? await PickFolder() : await PickFile(multiDef?.extensions);
     if (path) {
       setFileQueue(q => [...q, path]);
       setQueueMode(dirMode ? 'folder' : 'file');
