@@ -77,14 +77,22 @@ function App() {
     setStatus('running');
     setOutput('');
 
-    // Collect non-multiFile args using original indices
-    const nonMultiArgs = (script.argDefs || [])
-      .map((def, i) => (!def.multiFile && args[i] !== '' ? args[i] : null))
-      .filter(a => a !== null);
+    // Build argv client-side: walk argDefs, attach flags to values, collect
+    // positionals in order. Pass verbatim to main.ts — no index-based
+    // reconstruction in main, which breaks when multiFile expands the array.
+    const flags = [];
+    const positional = [];
+    (script.argDefs || []).forEach((def, i) => {
+      if (def.multiFile) return;
+      const v = args[i];
+      if (v === '' || v == null) return;
+      if (def.flag) { flags.push(def.flag, v); return; }
+      positional.push(v);
+    });
 
     const finalArgs = isMultiFile
-      ? [...fileQueue, ...nonMultiArgs]
-      : args.filter(a => a !== '');
+      ? [...flags, ...fileQueue, ...positional]
+      : [...flags, ...positional];
 
     if (script.interactive) {
       setActiveTab('terminal');
@@ -200,6 +208,7 @@ function App() {
               {/* Standard args — rendered using original index to keep args[] aligned */}
               {script.argDefs?.map((def, i) => {
                 if (def.multiFile) return null;
+                if (def.hidden) return null;
                 return (
                   <div key={i} className="arg-group">
                     <div className="arg-label">{def.label}</div>

@@ -10,6 +10,15 @@ const bundledBin = app.isPackaged
   ? path.join(process.resourcesPath, 'bin')
   : path.join(app.getAppPath(), 'resources', 'bin');
 
+// Root for bundled resources (python venv, python scripts, etc.)
+// Registry entries with runtime: "python" use paths relative to this root,
+// e.g. "python/scripts/docpipe.py" -> <bundledResources>/python/scripts/docpipe.py
+const bundledResources = app.isPackaged
+  ? process.resourcesPath
+  : path.join(app.getAppPath(), 'resources');
+
+const bundledPython = path.join(bundledResources, 'python', 'venv', 'bin', 'python3');
+
 process.env.PATH = `${bundledBin}:${process.env.PATH}`;
 
 // ── Registry ──────────────────────────────────────────────────────────────────
@@ -64,24 +73,25 @@ ipcMain.handle('run-script', (_event, groupIdx: number, scriptIdx: number, args:
   }
 
   return new Promise((resolve) => {
-    const flags: string[] = [];
-    const positional: string[] = [];
-    let workDir = '';
+    // Args arrive fully prepared from renderer (flags already attached to
+    // their values). Spawn verbatim — no index-based reconstruction here.
+    const allArgs = args.filter(a => a !== '' && a != null);
+    const workDir = '';
 
-    args.forEach((arg, i) => {
-      if (!arg) return;
-      const def = script.argDefs?.[i];
-      if (def?.setWorkDir && fs.statSync(arg).isDirectory()) {
-        workDir = arg;
-      } else if (def?.flag) {
-        flags.push(def.flag, arg);
-      } else {
-        positional.push(arg);
-      }
-    });
+    // Runtime dispatch:
+    //   runtime: "python" -> spawn bundled python with resolved script path as first arg
+    //   default           -> spawn script.path directly (legacy / native executables)
+    let cmd: string;
+    let cmdArgs: string[];
+    if (script.runtime === 'python') {
+      cmd = bundledPython;
+      cmdArgs = [path.join(bundledResources, script.path), ...allArgs];
+    } else {
+      cmd = script.path;
+      cmdArgs = allArgs;
+    }
 
-    const allArgs = [...flags, ...positional];
-    const proc = spawn(script.path, allArgs, {
+    const proc = spawn(cmd, cmdArgs, {
       env: { ...process.env },
       cwd: workDir || undefined,
     });

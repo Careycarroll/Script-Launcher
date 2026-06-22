@@ -127,9 +127,7 @@ See [`electron-app/README.md`](electron-app/README.md) for full setup and usage.
 | Script | Description |
 |---|---|
 | **Manage Vault** | Full vault management TUI — launches in a Terminal window |
-| **Add Vault Link** | Insert a wikilink into an Obsidian note's Supporting Content section |
 | **Vault Health** | Scan vault for broken wikilinks and orphaned notes |
-| **Cleanup Vault Tools** | Time-gated cleanup — only acts on or after December 2027 |
 
 ### Video
 
@@ -222,6 +220,5 @@ UNC Carolina Blue `#4B9CD3` and Navy `#13294B` paired with Tokyo Night.
 - [ ] Electron — theme customization panel (CSS variable editor)
 - [ ] Electron — OS-aware architecture (platform() checks, config file for paths)
 - [ ] Electron — PPTX → Text chaining (single script, full pipeline)
-- [ ] GUI — Add Vault Link end-to-end test
 - [ ] qpdf — bookmark creation script
 - [ ] manage_vault — restore key hints below menu options

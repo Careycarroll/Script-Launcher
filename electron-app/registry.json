@@ -4,34 +4,11 @@
     "scripts": [
       {
         "name": "Manage Vault",
-        "description": "Full vault management \u2014 create, edit, and organise vault entries",
+        "description": "Full vault management — create, edit, and organise vault entries",
         "path": "/Users/careycarroll/bin/manage_vault",
-        "help": "CAWC Vault Session Manager. Handles course registration and pre-session setup. Launches a full interactive TUI \u2014 use its own menus to navigate. Returns here when you exit.",
+        "help": "CAWC Vault Session Manager. Handles course registration and pre-session setup. Launches a full interactive TUI — use its own menus to navigate. Returns here when you exit.",
         "interactive": true,
         "argDefs": []
-      },
-      {
-        "name": "Add Vault Link",
-        "description": "Add a new link / reference into the vault",
-        "path": "/Users/careycarroll/bin/add_vault_link",
-        "help": "Inserts a wikilink into the Supporting Content section of an Obsidian note. Creates the section automatically if it does not exist. Appends after the last entry in the target subsection. Expires September 30, 2027.",
-        "interactive": false,
-        "argDefs": [
-          {
-            "label": "File path",
-            "filePicker": true
-          },
-          {
-            "label": "Wikilink (e.g. [[Note Name]])"
-          },
-          {
-            "label": "Reason"
-          },
-          {
-            "label": "Subsection",
-            "default": "Related prior session notes"
-          }
-        ]
       },
       {
         "name": "Vault Health",
@@ -39,14 +16,6 @@
         "path": "/Users/careycarroll/bin/vault_health",
         "help": "Scans the CAWC Obsidian vault for broken wikilinks and orphaned notes. Ignores index files (prefixed _), image links, and stub notes. Outputs a report to the terminal and writes a markdown report to Obsidian at Help/Vault Health Report.md.",
         "interactive": false,
-        "argDefs": []
-      },
-      {
-        "name": "Cleanup Vault Tools",
-        "description": "Remove temporary files and stale artefacts left by vault tools",
-        "path": "/Users/careycarroll/bin/cleanup_vault_tools.sh",
-        "help": "Time-gated cleanup \u2014 only takes action on or after December 2027. When triggered, removes: add_vault_link, the cleanup LaunchAgent plist, and this script itself. Before that date it runs and exits silently with no changes made.",
-        "interactive": true,
         "argDefs": []
       }
     ]
@@ -68,45 +37,35 @@
     "name": "Documents",
     "scripts": [
       {
-        "name": "PDF \u2192 Text",
+        "name": "PDF → Text",
         "description": "Extract plain text from one or more PDF files",
-        "path": "/Users/careycarroll/bin/pdf2txt",
-        "help": "Converts PDFs to plain text. Queue one or more files \u2014 each is converted individually. Output defaults to a .txt file in the same directory as the input.",
+        "path": "python/scripts/docpipe.py",
+        "runtime": "python",
+        "help": "Converts PDFs to plain text using bundled pymupdf. Layout mode (default) preserves columns and tables; plain mode extracts pure reading-order text. No external dependencies.",
         "interactive": false,
         "argDefs": [
+          {
+            "flag": "--from",
+            "default": "pdf",
+            "hidden": true
+          },
+          {
+            "flag": "--to",
+            "default": "txt",
+            "hidden": true
+          },
           {
             "label": "PDF files",
             "filePicker": true,
             "multiFile": true
-          }
-        ]
-      },
-      {
-        "name": "PPTX \u2192 PDF",
-        "description": "Convert PowerPoint presentations to PDF",
-        "path": "/Users/careycarroll/bin/pptx2pdf",
-        "help": "Converts .pptx files to PDF using Microsoft PowerPoint. Queue individual files or add from Finder. All queued files are converted in one pass. Compresses at 150 DPI (ebook) by default. Requires PowerPoint and Ghostscript (brew install ghostscript).",
-        "interactive": false,
-        "argDefs": [
-          {
-            "label": "PPTX files",
-            "filePicker": true,
-            "dirPicker": true,
-            "multiFile": true,
-            "batchArgs": true,
-            "setWorkDir": true
           },
           {
-            "label": "Compression",
-            "default": "ebook",
-            "flag": "-c",
+            "label": "Layout",
+            "flag": "--pdf-layout",
+            "default": "layout",
             "options": [
-              "screen",
-              "ebook",
-              "printer",
-              "prepress",
-              "default",
-              "none"
+              "layout",
+              "plain"
             ]
           }
         ]
