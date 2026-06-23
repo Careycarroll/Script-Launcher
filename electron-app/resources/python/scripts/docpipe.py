@@ -410,7 +410,16 @@ def _downsample_pdf_images(pdf_path: Path, target_dpi: int) -> None:
         for page in pdf.pages:
             try:
                 ctms = _parse_content_stream_ctms(page)
-                images = page.images
+                # Walk page resources to find image XObjects by name.
+                # Replacement for the deprecated Page.images mapping;
+                # preserves the {name: raw_image} access pattern we need
+                # to correlate with CTM-derived display rects.
+                resources = page.get("/Resources", pikepdf.Dictionary())
+                xobjects = resources.get("/XObject", pikepdf.Dictionary())
+                images = {
+                    name: obj for name, obj in xobjects.items()
+                    if obj.get("/Subtype") == pikepdf.Name("/Image")
+                }
             except Exception:
                 continue
 
