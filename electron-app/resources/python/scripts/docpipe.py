@@ -17,22 +17,21 @@ Batching:
   Stages declare an arity via Stage.multi_input.
     False (default) — 1 input → 1 output. Multiple inputs on the CLI are looped.
     True            — N inputs → 1 output. The stage receives the full list.
-                      --out is REQUIRED for multi_input stages (the output name
-                      cannot be inferred when N>1 inputs collapse to 1 output).
+                      --out is REQUIRED for multi_input stages.
 
 Directory inputs are expanded in-place to their sorted contents, filtered to
 formats the first stage's source format declares as recognized extensions.
-This lets a user drop a folder of images and have it Just Work.
+Individual files are also validated against the format's extensions — defense
+at the boundary so stages never see inputs they cannot handle.
 
 CLI:
   docpipe --from pdf --to txt input.pdf
   docpipe --from pdf --to txt a.pdf b.pdf c.pdf       # batch: N→N
-  docpipe --from pdf --to txt input.pdf --out output.txt
   docpipe --from pdf --to txt input.pdf --pdf-layout plain
   docpipe --from images --to pdf img1.png img2.png --out combined.pdf
   docpipe --from images --to pdf ~/scans/ --out scans.pdf
   docpipe --from pptx --to pdf deck.pptx              # macOS + PowerPoint
-  docpipe --from pptx --to pdf deck.pptx --pptx-compress no
+  docpipe --from pptx --to pdf deck.pptx --pptx-compress medium
   docpipe --no-keep-intermediate ...     # delete intermediates (default: keep)
   docpipe --force                        # overwrite existing outputs
   docpipe --dry-run                      # print resolved chain, do not execute
@@ -43,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import io
 import json
 import platform
 import subprocess
@@ -54,7 +54,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+import zlib
+
+import pikepdf
 import pymupdf  # PyMuPDF >= 1.24
+from PIL import Image
 
 
 # ─── Types ────────────────────────────────────────────────────────────────────
@@ -85,14 +89,10 @@ class Stage:
 
     @property
     def flag_prefix(self) -> str:
-        # All options for this stage are namespaced --<src>-<name>
-        # e.g. pdf → txt's "layout" option becomes --pdf-layout
         return f"--{self.src}"
 
 
 # ─── Format → recognized extensions ───────────────────────────────────────────
-# Used for directory expansion: if a user passes a folder, only files matching
-# the source format's extensions are picked up. Keep these lowercase.
 
 FORMAT_EXTENSIONS: dict[str, set[str]] = {
     "pdf":    {".pdf"},
@@ -115,13 +115,12 @@ _ROW_TOL_PT    = 3.0   # vertical tolerance for grouping blocks into a row
 def _layout_page_text(page) -> str:
     """
     Reconstruct text with column/table alignment by binning blocks into rows
-    by y-coordinate and padding with spaces to approximate x position.
-
-    Mirrors pdftotext -layout behavior. Not pixel-perfect — heuristic.
+    on y-coordinate, then padding each row with spaces based on x-position.
+    Closest approximation to pdftotext -layout we can do via pymupdf blocks.
     """
     blocks = page.get_text("blocks")
-    # block tuple: (x0, y0, x1, y1, text, block_no, block_type)
-    # block_type 0 = text, 1 = image
+    # Each block: (x0, y0, x1, y1, text, block_no, block_type)
+    # block_type == 0 means text; skip image blocks.
     lines: list[tuple[float, float, float, float, str]] = []
 
     for b in blocks:
@@ -131,10 +130,8 @@ def _layout_page_text(page) -> str:
         text = text.rstrip("\n")
         if not text.strip():
             continue
-
-        # A block can contain multiple visual lines. Split and distribute
-        # y-coordinates evenly across the block's vertical extent so each
-        # line bins into the right row.
+        # Split multi-line blocks into individual lines, each inheriting the
+        # block's x0 but synthesizing y by linear interpolation.
         block_lines = text.split("\n")
         n = len(block_lines)
         if n == 1:
@@ -151,16 +148,17 @@ def _layout_page_text(page) -> str:
     if not lines:
         return ""
 
-    # Normalize x: subtract the page's leftmost x0 so output starts at column 0
+    # Normalize x: subtract leftmost x0 so output starts at column 0.
+    # Prevents universal leading-whitespace from PDF page margins.
     min_x = min(l[0] for l in lines)
     if min_x > 0:
         lines = [(x0 - min_x, y0, x1, y1, t) for (x0, y0, x1, y1, t) in lines]
 
-    # Sort by vertical position, then horizontal
+    # Sort by y (top → bottom), then x (left → right) as tiebreaker
     lines.sort(key=lambda l: (l[1], l[0]))
 
-    # Group lines into rows by y-proximity. A new row starts when the next
-    # line's y0 is more than _ROW_TOL_PT below the current row's reference y.
+    # Bin into rows: consecutive lines within _ROW_TOL_PT of each other
+    # share a row. This is what reconstructs columnar layouts.
     rows: list[list[tuple[float, float, float, float, str]]] = []
     current_row: list = []
     row_y: float | None = None
@@ -175,7 +173,7 @@ def _layout_page_text(page) -> str:
     if current_row:
         rows.append(current_row)
 
-    # Emit each row as a single line with x-position-based space padding
+    # Emit each row with x-position-based padding
     out: list[str] = []
     for row in rows:
         row.sort(key=lambda l: l[0])
@@ -192,19 +190,12 @@ def _layout_page_text(page) -> str:
     return "\n".join(out)
 
 
-# ─── Stage implementations ────────────────────────────────────────────────────
+# ─── Stage: pdf → txt ─────────────────────────────────────────────────────────
 
 def stage_pdf_to_txt(input_path: Path, opts: dict, workdir: Path) -> Path:
-    """
-    Extract text from a PDF.
-
-    Options:
-      layout: 'layout' (default) reconstructs columns/tables via y-binning +
-              x-padding — closest equivalent to pdftotext -layout.
-              'plain' returns reading-order text without spatial reconstruction.
-    """
+    """Extract text from a PDF. Options: layout (default) or plain."""
     mode = opts.get("layout", "layout")
-    output_path = workdir / f"{input_path.stem}.txt"
+    output_path = workdir  # runner passes the resolved output path
 
     doc = pymupdf.open(input_path)
     try:
@@ -215,7 +206,6 @@ def stage_pdf_to_txt(input_path: Path, opts: dict, workdir: Path) -> Path:
             else:
                 text = page.get_text("text")
             chunks.append(text)
-        # Single newline between pages; no form-feeds (matches pdftotext -nopgbrk)
         output_path.write_text("\n".join(chunks), encoding="utf-8")
     finally:
         doc.close()
@@ -223,66 +213,56 @@ def stage_pdf_to_txt(input_path: Path, opts: dict, workdir: Path) -> Path:
     return output_path
 
 
-# Fixed page sizes in points (1 pt = 1/72 inch). Width × height, portrait.
+# ─── Stage: images → pdf ──────────────────────────────────────────────────────
+
 _PAGE_SIZES_PT: dict[str, tuple[float, float]] = {
-    "letter": (612.0, 792.0),    # 8.5 × 11 in
-    "a4":     (595.28, 841.89),  # 210 × 297 mm
+    "letter": (612.0, 792.0),
+    "a4":     (595.0, 842.0),
 }
 
 
 def stage_images_to_pdf(inputs: list[Path], opts: dict, workdir: Path) -> Path:
-    """
-    Combine images into a single PDF.
-
-    Options:
-      page_size: 'auto' (default) — each page sized to its image
-                 'letter' / 'a4'  — fixed page size, contain-fit, auto-orient
-
-    Multi-input: takes N images, produces 1 PDF. Output path comes from --out
-    (CLI enforces this), routed through workdir as <workdir>/<--out basename>.
-    """
+    """Combine images into a single PDF. Multi-input: N images → 1 PDF."""
     page_size = opts.get("page_size", "auto")
+    output_path = workdir  # workdir is the resolved output path for multi_input
 
-    # workdir already carries the desired output filename via run_chain when
-    # --out is set on a multi_input stage. Use workdir as the output path.
-    output_path = workdir
-
-    out_doc = pymupdf.open()  # empty PDF
+    out_doc = pymupdf.open()
     try:
         for img_path in inputs:
-            # Convert image → single-page PDF in memory, then merge
             img_doc = pymupdf.open(img_path)
             try:
                 pdf_bytes = img_doc.convert_to_pdf()
             finally:
                 img_doc.close()
 
-            src = pymupdf.open("pdf", pdf_bytes)
+            img_pdf = pymupdf.open("pdf", pdf_bytes)
             try:
-                if page_size == "auto":
-                    out_doc.insert_pdf(src)
-                else:
-                    # Determine target page dimensions, auto-orienting to match
-                    # the image's aspect ratio (landscape image → landscape page)
-                    img_rect = src[0].rect
-                    pw, ph = _PAGE_SIZES_PT[page_size]
-                    if img_rect.width > img_rect.height:
-                        pw, ph = ph, pw  # landscape
+                img_page = img_pdf[0]
+                img_w, img_h = img_page.rect.width, img_page.rect.height
 
-                    page = out_doc.new_page(width=pw, height=ph)
-                    # contain-fit: scale image to fit within page, centered
-                    scale = min(pw / img_rect.width, ph / img_rect.height)
-                    w = img_rect.width * scale
-                    h = img_rect.height * scale
-                    x = (pw - w) / 2
-                    y = (ph - h) / 2
-                    page.show_pdf_page(
-                        pymupdf.Rect(x, y, x + w, y + h),
-                        src,
-                        0,
-                    )
+                if page_size == "auto":
+                    pw, ph = img_w, img_h
+                else:
+                    pw, ph = _PAGE_SIZES_PT[page_size]
+                    # Auto-orient: landscape image → landscape page
+                    if (img_w > img_h) != (pw > ph):
+                        pw, ph = ph, pw
+
+                new_page = out_doc.new_page(width=pw, height=ph)
+
+                if page_size == "auto":
+                    new_page.show_pdf_page(new_page.rect, img_pdf, 0)
+                else:
+                    # contain-fit: scale to fit, center
+                    scale = min(pw / img_w, ph / img_h)
+                    fitted_w = img_w * scale
+                    fitted_h = img_h * scale
+                    x0 = (pw - fitted_w) / 2
+                    y0 = (ph - fitted_h) / 2
+                    target = pymupdf.Rect(x0, y0, x0 + fitted_w, y0 + fitted_h)
+                    new_page.show_pdf_page(target, img_pdf, 0)
             finally:
-                src.close()
+                img_pdf.close()
 
         out_doc.save(output_path, garbage=4, deflate=True)
     finally:
@@ -291,155 +271,266 @@ def stage_images_to_pdf(inputs: list[Path], opts: dict, workdir: Path) -> Path:
     return output_path
 
 
-# ─── PowerPoint state (for pptx → pdf stage) ──────────────────────────────────
-# We launch PowerPoint via AppleScript on the first PPTX in a batch and want
-# to leave the user's environment as we found it: if PowerPoint wasn't running
-# before, we quit it after the batch. These module-level flags coordinate that
-# across multiple stage invocations within a single docpipe run.
+# ─── Stage: pptx → pdf (macOS, via PowerPoint AppleScript) ────────────────────
 
-_PPTX_PROBED        = False  # have we checked PowerPoint's running state?
-_PPTX_WAS_RUNNING   = False  # was it already running when we started?
-_PPTX_QUIT_REGISTERED = False  # have we registered the atexit quit hook?
+_PPTX_LAUNCHED_BY_US = False  # Module-level flag for batch quit-after logic
 
 
-def _pptx_check_running() -> bool:
-    """Return True if Microsoft PowerPoint is currently running."""
+def _powerpoint_is_running() -> bool:
+    """Returns True if Microsoft PowerPoint is currently running."""
     try:
         result = subprocess.run(
             ["pgrep", "-x", "Microsoft PowerPoint"],
             capture_output=True, text=True, timeout=5,
         )
         return result.returncode == 0
-    except (subprocess.SubprocessError, FileNotFoundError):
+    except Exception:
         return False
 
 
-def _pptx_quit_if_we_launched():
-    """atexit hook — quit PowerPoint only if it wasn't running before we started."""
-    if _PPTX_PROBED and not _PPTX_WAS_RUNNING:
+def _quit_powerpoint_if_we_launched_it():
+    """atexit hook: quit PowerPoint if WE launched it during this batch."""
+    global _PPTX_LAUNCHED_BY_US
+    if _PPTX_LAUNCHED_BY_US:
         try:
             subprocess.run(
                 ["osascript", "-e", 'tell application "Microsoft PowerPoint" to quit'],
                 capture_output=True, timeout=10,
             )
             print("🔴 PowerPoint closed", file=sys.stderr)
-        except (subprocess.SubprocessError, FileNotFoundError):
-            pass  # best-effort cleanup
+        except Exception:
+            pass
+
+
+atexit.register(_quit_powerpoint_if_we_launched_it)
+
+
+# DPI presets — match historical ghostscript /screen, /ebook, /printer levels
+_DPI_PRESETS: dict[str, int | None] = {
+    "none":   None,   # no downsampling, raw PowerPoint output
+    "small":  72,     # screen viewing only
+    "medium": 150,    # balanced (default)
+    "large":  300,    # print quality
+}
+
+
+def _parse_content_stream_ctms(page) -> dict[str, tuple[float, float]]:
+    """Walk content stream, track CTM, return {image_name: (w_pt, h_pt)}."""
+    try:
+        instructions = list(pikepdf.parse_content_stream(page))
+    except Exception:
+        return {}
+
+    result: dict[str, tuple[float, float]] = {}
+    ctm_stack: list[list[float]] = [[1, 0, 0, 1, 0, 0]]
+
+    def mul(m1, m2):
+        a1, b1, c1, d1, e1, f1 = m1
+        a2, b2, c2, d2, e2, f2 = m2
+        return [
+            a1 * a2 + b1 * c2, a1 * b2 + b1 * d2,
+            c1 * a2 + d1 * c2, c1 * b2 + d1 * d2,
+            e1 * a2 + f1 * c2 + e2, e1 * b2 + f1 * d2 + f2,
+        ]
+
+    for inst in instructions:
+        op = str(inst.operator)
+        operands = inst.operands
+        if op == "q":
+            ctm_stack.append(list(ctm_stack[-1]))
+        elif op == "Q":
+            if len(ctm_stack) > 1:
+                ctm_stack.pop()
+        elif op == "cm" and len(operands) == 6:
+            m = [float(x) for x in operands]
+            ctm_stack[-1] = mul(m, ctm_stack[-1])
+        elif op == "Do" and operands:
+            name = str(operands[0])
+            ctm = ctm_stack[-1]
+            result[name] = (abs(ctm[0]), abs(ctm[3]))
+    return result
+
+
+def _downsample_one_image(raw_image, new_w: int, new_h: int) -> int:
+    """Re-encode an image stream as JPEG q=85. Returns new byte length."""
+    pi = pikepdf.PdfImage(raw_image)
+    pil = pi.as_pil_image()
+    if pil.mode not in ("RGB", "L"):
+        pil = pil.convert("RGB")
+    pil = pil.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    buf = io.BytesIO()
+    pil.save(buf, format="JPEG", quality=85, optimize=True)
+    jpeg = buf.getvalue()
+    raw_image.write(
+        jpeg, filter=pikepdf.Name("/DCTDecode"), decode_parms=pikepdf.Dictionary(),
+    )
+    raw_image.Width = new_w
+    raw_image.Height = new_h
+    raw_image.BitsPerComponent = 8
+    raw_image.ColorSpace = (
+        pikepdf.Name("/DeviceGray") if pil.mode == "L" else pikepdf.Name("/DeviceRGB")
+    )
+    return len(jpeg)
+
+
+def _downsample_one_smask(smask, new_w: int, new_h: int) -> int:
+    """Re-encode SMask as raw 8-bit gray + Flate. Returns new compressed length."""
+    pi = pikepdf.PdfImage(smask)
+    pil = pi.as_pil_image()
+    if pil.mode != "L":
+        pil = pil.convert("L")
+    pil = pil.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    raw = pil.tobytes()
+    comp = zlib.compress(raw, level=9)
+    smask.write(
+        comp, filter=pikepdf.Name("/FlateDecode"), decode_parms=pikepdf.Dictionary(),
+    )
+    smask.Width = new_w
+    smask.Height = new_h
+    smask.BitsPerComponent = 8
+    smask.ColorSpace = pikepdf.Name("/DeviceGray")
+    return len(comp)
+
+
+def _downsample_pdf_images(pdf_path: Path, target_dpi: int) -> None:
+    """
+    Walk every embedded image; downsample those whose effective DPI on the page
+    exceeds target_dpi. SMasks are processed in lockstep (preserves alpha).
+    Deduplicates by xref. Per-image errors are isolated to stderr; batch continues.
+
+    Algorithm validated in /tmp/test_compress.py phase2 against PowerPoint
+    exports with SMask-heavy decks. Matches ghostscript /screen, /ebook, /printer
+    file-size results within a few percent.
+    """
+    pdf = pikepdf.open(pdf_path, allow_overwriting_input=True)
+    processed: set[int] = set()
+    n_resized = 0
+
+    try:
+        for page in pdf.pages:
+            try:
+                ctms = _parse_content_stream_ctms(page)
+                images = page.images
+            except Exception:
+                continue
+
+            for name, raw_image in images.items():
+                xref = raw_image.objgen[0]
+                if xref in processed:
+                    continue
+                processed.add(xref)
+
+                try:
+                    pi = pikepdf.PdfImage(raw_image)
+                    ow, oh = pi.width, pi.height
+                except Exception:
+                    continue
+
+                rect = ctms.get(name)
+                if rect is None:
+                    continue
+                dwi, dhi = rect[0] / 72.0, rect[1] / 72.0
+                if dwi <= 0 or dhi <= 0:
+                    continue
+                eff = max(ow / dwi, oh / dhi)
+                if eff <= target_dpi:
+                    continue
+
+                scale = target_dpi / eff
+                nw = max(1, round(ow * scale))
+                nh = max(1, round(oh * scale))
+
+                try:
+                    _downsample_one_image(raw_image, nw, nh)
+                    sm = raw_image.get("/SMask")
+                    if sm is not None:
+                        smpi = pikepdf.PdfImage(sm)
+                        sw = max(1, round(smpi.width * (nw / ow)))
+                        sh = max(1, round(smpi.height * (nh / oh)))
+                        _downsample_one_smask(sm, sw, sh)
+                    n_resized += 1
+                except Exception as e:
+                    print(f"  ⚠️  image xref={xref}: {e}", file=sys.stderr)
+
+        pdf.save(pdf_path)
+        if n_resized:
+            print(f"  ↓ downsampled {n_resized} images (target {target_dpi} DPI)", file=sys.stderr)
+    finally:
+        pdf.close()
 
 
 def stage_pptx_to_pdf(input_path: Path, opts: dict, workdir: Path) -> Path:
     """
-    Convert a .pptx to PDF by automating Microsoft PowerPoint via AppleScript.
-
-    macOS-only. Requires Microsoft PowerPoint to be installed.
+    Convert PPTX to PDF using Microsoft PowerPoint via AppleScript (macOS only).
 
     Options:
-      compress: 'yes' (default) — pymupdf post-process with garbage collection,
-                                  deflate, image+font deflate, clean
-                'no'            — PowerPoint's raw PDF export, untouched
-
-    Behavior:
-      - Hides PowerPoint window during conversion (System Events)
-      - Detects whether PowerPoint was already running on first call
-      - Registers an atexit hook to quit PowerPoint if and only if WE launched it
+      compress: none / small / medium / large
+        none   — PowerPoint's raw export, no post-processing
+        small  — image downsampling to 72 DPI (screen viewing)
+        medium — 150 DPI (balanced, default)
+        large  — 300 DPI (print quality)
     """
-    global _PPTX_PROBED, _PPTX_WAS_RUNNING, _PPTX_QUIT_REGISTERED
+    global _PPTX_LAUNCHED_BY_US
 
     if platform.system() != "Darwin":
         raise RuntimeError(
-            "pptx → pdf currently requires macOS + Microsoft PowerPoint. "
-            "Cross-platform support is on the backlog."
+            "pptx_to_pdf currently requires macOS + Microsoft PowerPoint. "
+            "Cross-platform support (LibreOffice headless / Windows COM) is on the roadmap."
         )
 
-    # First-call: probe PowerPoint state and register the quit-after hook.
-    # We do this lazily (here, not at import) so the introspect/dry-run paths
-    # don't shell out to pgrep when no PPTX work will actually happen.
-    if not _PPTX_PROBED:
-        _PPTX_WAS_RUNNING = _pptx_check_running()
-        _PPTX_PROBED = True
-    if not _PPTX_QUIT_REGISTERED:
-        atexit.register(_pptx_quit_if_we_launched)
-        _PPTX_QUIT_REGISTERED = True
+    compress = opts.get("compress", "medium")
+    if compress not in _DPI_PRESETS:
+        raise ValueError(f"Unknown --pptx-compress value: {compress!r}")
 
-    compress = opts.get("compress", "yes") == "yes"
-    output_path = workdir / f"{input_path.stem}.pdf"
+    output_path = workdir  # runner passes the resolved output path
 
-    # If compressing, PowerPoint writes a temp PDF and we re-save through pymupdf.
-    # If not, PowerPoint writes directly to the final output path.
-    if compress:
-        ppt_target = workdir / f"{input_path.stem}.ppt-raw.pdf"
-    else:
-        ppt_target = output_path
+    # Track if PowerPoint was already running BEFORE we touched it.
+    # First call in a batch sets the flag for the rest.
+    if not _PPTX_LAUNCHED_BY_US and not _powerpoint_is_running():
+        _PPTX_LAUNCHED_BY_US = True
 
-    # AppleScript: open file, hide PowerPoint, save as PDF, close doc.
-    # POSIX paths are passed in directly via string interpolation — escape any
-    # double quotes in the path defensively.
-    in_str  = str(input_path.resolve()).replace('"', '\\"')
-    out_str = str(ppt_target.resolve()).replace('"', '\\"')
-
+    # AppleScript: open, hide, save as PDF, close.
     applescript = f'''
-tell application "Microsoft PowerPoint"
-    set theFile to POSIX file "{in_str}"
-    set theOutput to POSIX file "{out_str}"
-    open theFile
-    tell application "System Events"
-        if exists process "Microsoft PowerPoint" then
+    tell application "Microsoft PowerPoint"
+        set theFile to POSIX file "{input_path}"
+        set theOutput to POSIX file "{output_path}"
+        open theFile
+        tell application "System Events"
             set visible of process "Microsoft PowerPoint" to false
-        end if
+        end tell
+        set theDoc to active presentation
+        save theDoc in theOutput as save as PDF
+        close theDoc saving no
     end tell
-    set theDoc to active presentation
-    save theDoc in theOutput as save as PDF
-    close theDoc saving no
-end tell
-'''.strip()
+    '''
 
     result = subprocess.run(
         ["osascript", "-e", applescript],
-        capture_output=True, text=True,
+        capture_output=True, text=True, timeout=300,
     )
+
     if result.returncode != 0:
         raise RuntimeError(
-            f"PowerPoint conversion failed for {input_path.name}: "
-            f"{result.stderr.strip() or 'unknown osascript error'}"
+            f"PowerPoint export failed for {input_path.name}:\n{result.stderr.strip()}"
         )
 
-    if not ppt_target.exists():
+    if not output_path.exists():
         raise RuntimeError(
-            f"PowerPoint reported success but no output file was produced: {ppt_target}"
+            f"PowerPoint export reported success but file was not created: {output_path}"
         )
 
-    # Compression pass: re-save through pymupdf with aggressive cleanup.
-    # garbage=4 removes all unreferenced objects; deflate compresses streams;
-    # deflate_images/fonts ensures image and font streams are also compressed;
-    # clean=True runs the PDF parser cleanup pass.
-    if compress:
+    # Post-process: image downsampling + cleanup
+    dpi = _DPI_PRESETS[compress]
+    if dpi is not None:
         try:
-            doc = pymupdf.open(ppt_target)
-            try:
-                doc.save(
-                    output_path,
-                    garbage=4,
-                    deflate=True,
-                    deflate_images=True,
-                    deflate_fonts=True,
-                    clean=True,
-                )
-            finally:
-                doc.close()
-        finally:
-            # Always remove the intermediate PowerPoint-export PDF, even on
-            # failure — it's a stage-internal artifact, not a pipeline-level
-            # intermediate (which --keep-intermediate would govern).
-            try:
-                ppt_target.unlink()
-            except FileNotFoundError:
-                pass
+            _downsample_pdf_images(output_path, dpi)
+        except Exception as e:
+            print(f"⚠️  Image downsampling failed ({e}); keeping uncompressed PDF", file=sys.stderr)
 
     return output_path
 
 
 # ─── Stage registry ───────────────────────────────────────────────────────────
-# Single source of truth. The CLI, router, and introspection all read from here.
 
 STAGES: dict[str, Stage] = {
     "pdf_to_txt": Stage(
@@ -449,10 +540,7 @@ STAGES: dict[str, Stage] = {
                 name="layout",
                 choices=["layout", "plain"],
                 default="layout",
-                help=(
-                    "layout: reconstruct columns/tables via y-binning + x-padding "
-                    "(default); plain: reading-order text only, no spatial layout."
-                ),
+                help="Preserve columns/tables via row reconstruction (layout), or extract reading-order text (plain).",
             ),
         ],
     ),
@@ -464,10 +552,7 @@ STAGES: dict[str, Stage] = {
                 name="page-size",
                 choices=["auto", "letter", "a4"],
                 default="auto",
-                help=(
-                    "auto: each page sized to its image (default); "
-                    "letter/a4: fixed page size, image contain-fit and auto-oriented."
-                ),
+                help="auto = page sized to each image. letter/a4 = fixed page, image contain-fit and centered with auto-orientation.",
             ),
         ],
     ),
@@ -476,83 +561,80 @@ STAGES: dict[str, Stage] = {
         options=[
             StageOption(
                 name="compress",
-                choices=["yes", "no"],
-                default="yes",
-                help=(
-                    "yes: re-save via pymupdf with garbage collection + stream/image/"
-                    "font deflate (default); no: keep PowerPoint's raw PDF export."
-                ),
+                choices=["none", "small", "medium", "large"],
+                default="medium",
+                help="Image quality: none (raw), small (72 DPI), medium (150 DPI, default), large (300 DPI).",
             ),
         ],
     ),
 }
 
-# Edges define the conversion graph. Source → destination → stage name.
-EDGES: dict[str, dict[str, str]] = {
-    "pdf":    {"txt": "pdf_to_txt"},
-    "images": {"pdf": "images_to_pdf"},
-    "pptx":   {"pdf": "pptx_to_pdf"},
-}
+# Edges = directed adjacency map for BFS routing
+EDGES: dict[str, list[str]] = {}
+for stage in STAGES.values():
+    EDGES.setdefault(stage.src, []).append(stage.dst)
 
 
 # ─── Routing ──────────────────────────────────────────────────────────────────
 
-def find_chain(src: str, dst: str) -> list[str]:
-    """
-    BFS over EDGES to find a path of stage names from src to dst.
-    Returns [] if no path exists. Single-edge case returns [stage_name].
-    """
+def find_chain(src: str, dst: str) -> list[Stage]:
+    """BFS over EDGES to find a stage chain from src to dst."""
     if src == dst:
-        return []
-    if src not in EDGES:
-        return []
+        raise ValueError(f"--from and --to are both {src!r}; nothing to do.")
 
-    # BFS with parent tracking
-    visited = {src}
-    queue: deque[tuple[str, list[str]]] = deque([(src, [])])
+    # BFS recording the predecessor for each visited node
+    prev: dict[str, str | None] = {src: None}
+    queue: deque[str] = deque([src])
     while queue:
-        node, path = queue.popleft()
-        for next_fmt, stage_name in EDGES.get(node, {}).items():
-            if next_fmt == dst:
-                return path + [stage_name]
-            if next_fmt not in visited:
-                visited.add(next_fmt)
-                queue.append((next_fmt, path + [stage_name]))
-    return []
+        cur = queue.popleft()
+        if cur == dst:
+            break
+        for nxt in EDGES.get(cur, []):
+            if nxt not in prev:
+                prev[nxt] = cur
+                queue.append(nxt)
+
+    if dst not in prev:
+        available = sorted({s for s in EDGES} | {d for ds in EDGES.values() for d in ds})
+        raise ValueError(
+            f"No conversion path from {src!r} to {dst!r}.\n"
+            f"Available formats: {available}\n"
+            f"Available edges:   {dict(EDGES)}"
+        )
+
+    # Reconstruct path
+    chain_formats: list[str] = []
+    cur: str | None = dst
+    while cur is not None:
+        chain_formats.append(cur)
+        cur = prev[cur]
+    chain_formats.reverse()
+
+    return [STAGES[f"{a}_to_{b}"] for a, b in zip(chain_formats, chain_formats[1:])]
 
 
-def all_formats() -> list[str]:
-    """All known formats — sources of edges plus their destinations."""
-    fmts = set(EDGES.keys())
-    for dests in EDGES.values():
-        fmts.update(dests.keys())
-    return sorted(fmts)
-
-
-# ─── Output naming ────────────────────────────────────────────────────────────
+# ─── Output naming + intermediate handling ────────────────────────────────────
 
 def resolve_output_path(
-    desired: Path,
-    force: bool,
+    desired_dir: Path, stem: str, ext: str, force: bool
 ) -> Path:
     """
-    If `desired` doesn't exist, return it. Otherwise append _1, _2, ... until
-    we find a free name. If force=True, return `desired` unchanged.
+    Return a path under desired_dir named `{stem}.{ext}`. If it exists and
+    --force is not set, append _1, _2, ... until free.
     """
-    if force or not desired.exists():
-        return desired
-    stem = desired.stem
-    suffix = desired.suffix
-    parent = desired.parent
-    i = 1
+    candidate = desired_dir / f"{stem}.{ext}"
+    if force or not candidate.exists():
+        return candidate
+
+    n = 1
     while True:
-        candidate = parent / f"{stem}_{i}{suffix}"
+        candidate = desired_dir / f"{stem}_{n}.{ext}"
         if not candidate.exists():
             return candidate
-        i += 1
+        n += 1
 
 
-# ─── Input expansion ──────────────────────────────────────────────────────────
+# ─── Input expansion + validation ─────────────────────────────────────────────
 
 def expand_inputs(raw: list[str], src_format: str) -> list[Path]:
     """
@@ -599,215 +681,165 @@ def expand_inputs(raw: list[str], src_format: str) -> list[Path]:
     return expanded
 
 
-# ─── Execution ────────────────────────────────────────────────────────────────
-
-def _stage_opts(stage: Stage, args_ns: argparse.Namespace) -> dict:
-    """Extract this stage's options from the argparse namespace."""
-    out = {}
-    for opt in stage.options:
-        attr = f"{stage.src}_{opt.name}".replace("-", "_")
-        out[opt.name.replace("-", "_")] = getattr(args_ns, attr, opt.default)
-    return out
-
+# ─── Run a chain on a single input ────────────────────────────────────────────
 
 def _run_single_chain(
     input_path: Path,
-    chain: list[str],
-    args_ns: argparse.Namespace,
-    out_override: Path | None,
+    chain: list[Stage],
+    stage_opts: dict[str, dict],
+    out_path: Path | None,
     keep_intermediate: bool,
     force: bool,
 ) -> Path:
-    """
-    Run a chain of single-input stages on one input file. Returns final output.
-    Intermediates live alongside the input (when keep_intermediate=True) or in
-    a tempdir (when False).
-    """
-    current = input_path
-    if keep_intermediate:
-        intermediate_dir = input_path.parent
-        tempdir_ctx = None
-    else:
-        tempdir_ctx = tempfile.TemporaryDirectory()
-        intermediate_dir = Path(tempdir_ctx.name)
+    """Run a chain (all single-input stages) on one input. Returns final path."""
+    print(f"📄 {input_path.name}", file=sys.stderr)
 
-    try:
-        last_idx = len(chain) - 1
-        for i, stage_name in enumerate(chain):
-            stage = STAGES[stage_name]
-            opts = _stage_opts(stage, args_ns)
-
-            # For the final stage, honor --out if provided; otherwise use the
-            # input's directory with the stage's natural output name.
-            if i == last_idx and out_override is not None:
-                workdir = out_override.parent
+    if keep_intermediate or out_path:
+        # Persistent intermediates next to input; final lands at --out or default
+        current = input_path
+        for i, stage in enumerate(chain):
+            is_last = (i == len(chain) - 1)
+            if is_last and out_path is not None:
+                target_dir = out_path.parent
+                target_stem = out_path.stem
+                target = resolve_output_path(target_dir, target_stem, stage.dst, force)
             else:
-                workdir = intermediate_dir
+                target_dir = input_path.parent
+                target = resolve_output_path(target_dir, current.stem, stage.dst, force)
 
-            start = time.time()
-            print(f"   → {stage_name}", file=sys.stderr)
-            produced = stage.fn(current, opts, workdir)
-
-            # If this is the final stage and --out was specified, rename to it.
-            if i == last_idx and out_override is not None and produced != out_override:
-                target = resolve_output_path(out_override, force)
-                produced.rename(target)
-                produced = target
-            elif i == last_idx:
-                # Conflict resolution on natural names
-                target = resolve_output_path(produced, force)
-                if target != produced:
-                    produced.rename(target)
-                    produced = target
-
-            elapsed = time.time() - start
+            print(f"   → {stage.name}", file=sys.stderr)
+            t0 = time.time()
+            produced = stage.fn(current, stage_opts[stage.name], target)
+            elapsed = time.time() - t0
             print(f"   ✅ {produced.name}  ({elapsed:.1f}s)", file=sys.stderr)
             current = produced
-
         return current
-    finally:
-        if tempdir_ctx is not None:
-            tempdir_ctx.cleanup()
+    else:
+        # Throwaway intermediates in tempdir, only final keeps
+        with tempfile.TemporaryDirectory(prefix="docpipe_") as td:
+            tdpath = Path(td)
+            current = input_path
+            for i, stage in enumerate(chain):
+                is_last = (i == len(chain) - 1)
+                if is_last:
+                    target_dir = (out_path.parent if out_path else input_path.parent)
+                    target_stem = (out_path.stem if out_path else current.stem)
+                    target = resolve_output_path(target_dir, target_stem, stage.dst, force)
+                else:
+                    target = tdpath / f"{current.stem}.{stage.dst}"
+
+                print(f"   → {stage.name}", file=sys.stderr)
+                t0 = time.time()
+                produced = stage.fn(current, stage_opts[stage.name], target)
+                elapsed = time.time() - t0
+                print(f"   ✅ {produced.name}  ({elapsed:.1f}s)", file=sys.stderr)
+                current = produced
+            return current
 
 
 def _run_multi_chain(
     inputs: list[Path],
-    chain: list[str],
-    args_ns: argparse.Namespace,
-    out_override: Path,
+    chain: list[Stage],
+    stage_opts: dict[str, dict],
+    out_path: Path,
     keep_intermediate: bool,
     force: bool,
 ) -> Path:
     """
-    Run a chain whose first stage is multi_input. The first stage receives the
-    full list and produces a single output. Subsequent stages (if any) are
-    single-input and run sequentially on that output.
+    Run a chain whose FIRST stage is multi_input. The first stage consumes
+    the full input list and produces a single intermediate. Subsequent stages
+    (if any) run single-input over that intermediate.
     """
-    if keep_intermediate:
-        intermediate_dir = out_override.parent
-        tempdir_ctx = None
-    else:
-        tempdir_ctx = tempfile.TemporaryDirectory()
-        intermediate_dir = Path(tempdir_ctx.name)
+    print(f"📦 {len(inputs)} inputs → {chain[0].dst}", file=sys.stderr)
 
-    try:
-        # First stage: multi_input
-        first_name = chain[0]
-        first_stage = STAGES[first_name]
-        first_opts = _stage_opts(first_stage, args_ns)
+    target = resolve_output_path(out_path.parent, out_path.stem, chain[0].dst, force)
 
-        # If first stage IS the final stage, write directly to the resolved
-        # output path. Otherwise write to intermediate dir with --out's basename.
-        if len(chain) == 1:
-            target = resolve_output_path(out_override, force)
-        else:
-            target = intermediate_dir / out_override.name
+    print(f"   → {chain[0].name}", file=sys.stderr)
+    t0 = time.time()
+    first_out = chain[0].fn(inputs, stage_opts[chain[0].name], target)
+    elapsed = time.time() - t0
+    print(f"   ✅ {first_out.name}  ({elapsed:.1f}s)", file=sys.stderr)
 
-        print(f"   → {first_name}", file=sys.stderr)
-        start = time.time()
-        produced = first_stage.fn(inputs, first_opts, target)
-        elapsed = time.time() - start
-        print(f"   ✅ {produced.name}  ({elapsed:.1f}s)", file=sys.stderr)
+    if len(chain) == 1:
+        return first_out
 
-        # Remaining stages: single-input on the produced file
-        current = produced
-        last_idx = len(chain) - 1
-        for i, stage_name in enumerate(chain[1:], start=1):
-            stage = STAGES[stage_name]
-            opts = _stage_opts(stage, args_ns)
-            workdir = out_override.parent if i == last_idx else intermediate_dir
-
-            start = time.time()
-            print(f"   → {stage_name}", file=sys.stderr)
-            produced = stage.fn(current, opts, workdir)
-            if i == last_idx:
-                target = resolve_output_path(produced, force)
-                if target != produced:
-                    produced.rename(target)
-                    produced = target
-            elapsed = time.time() - start
-            print(f"   ✅ {produced.name}  ({elapsed:.1f}s)", file=sys.stderr)
-            current = produced
-
-        return current
-    finally:
-        if tempdir_ctx is not None:
-            tempdir_ctx.cleanup()
+    # Continue with remaining single-input stages
+    return _run_single_chain(
+        first_out, chain[1:], stage_opts, out_path, keep_intermediate, force,
+    )
 
 
 # ─── CLI ──────────────────────────────────────────────────────────────────────
 
 def build_parser() -> argparse.ArgumentParser:
+    formats = sorted(set(FORMAT_EXTENSIONS.keys()) | {s.src for s in STAGES.values()} | {s.dst for s in STAGES.values()})
+
     p = argparse.ArgumentParser(
         prog="docpipe",
         description="Unified document conversion pipeline.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    formats = all_formats()
     p.add_argument("--from", dest="src", choices=formats,
                    help="Source format")
     p.add_argument("--to", dest="dst", choices=formats,
                    help="Destination format")
     p.add_argument("--out", type=Path, default=None,
-                   help="Override output path (single-input: optional; "
-                        "multi-input: required; batched N→N: not allowed)")
+                   help="Explicit output path (overrides default naming). "
+                        "Required for multi-input stages (e.g. images→pdf). "
+                        "Rejected when batching multiple single-input files.")
     p.add_argument("--force", action="store_true",
-                   help="Overwrite existing outputs (default: append _1, _2, ...)")
+                   help="Overwrite existing outputs instead of appending _1, _2, ...")
     p.add_argument("--dry-run", action="store_true",
-                   help="Print resolved chain and exit, no execution")
+                   help="Print the resolved chain and intended actions, then exit.")
     p.add_argument("--introspect", action="store_true",
-                   help="Print graph + options as JSON to stdout, exit")
+                   help="Print the conversion graph + per-stage options as JSON, then exit.")
     p.add_argument("--keep-intermediate", dest="keep_intermediate",
                    action="store_true", default=True,
-                   help="Keep intermediate files alongside input (default)")
+                   help="Keep intermediate files from each stage (default).")
     p.add_argument("--no-keep-intermediate", dest="keep_intermediate",
                    action="store_false",
-                   help="Delete intermediates after final output is produced")
+                   help="Discard intermediate files, only keep final output.")
 
-    # Per-stage options auto-registered from STAGES
+    # Per-stage options, namespaced as --{src}-{name}
     for stage in STAGES.values():
         for opt in stage.options:
-            flag = f"{stage.flag_prefix}-{opt.name}"
             p.add_argument(
-                flag,
+                f"--{stage.src}-{opt.name}",
+                dest=f"opt_{stage.name}_{opt.name.replace('-', '_')}",
                 choices=opt.choices,
                 default=opt.default,
-                help=opt.help or f"{stage.name} option",
+                help=opt.help,
             )
 
-    p.add_argument("inputs", nargs="*",
-                   help="Input file(s) or directories (directories expand to "
-                        "their sorted contents, filtered to the source format)")
+    p.add_argument("inputs", nargs="*", type=str,
+                   help="Input file paths or directories.")
     return p
 
 
-def emit_introspection() -> None:
-    """Print the conversion graph + per-stage options as JSON to stdout."""
-    edges_out = []
-    for src, dests in EDGES.items():
-        for dst, stage_name in dests.items():
-            stage = STAGES[stage_name]
-            edges_out.append({
-                "from": src,
-                "to": dst,
-                "stage": stage_name,
+def introspect_payload() -> dict:
+    return {
+        "formats": sorted(set(s.src for s in STAGES.values()) | set(s.dst for s in STAGES.values())),
+        "edges": [
+            {
+                "from": stage.src,
+                "to": stage.dst,
                 "multi_input": stage.multi_input,
+                "extensions": sorted(FORMAT_EXTENSIONS.get(stage.src, set())),
                 "options": [
                     {
-                        "name": o.name,
-                        "flag": f"{stage.flag_prefix}-{o.name}",
-                        "choices": o.choices,
-                        "default": o.default,
-                        "help": o.help,
+                        "name": opt.name,
+                        "flag": f"--{stage.src}-{opt.name}",
+                        "choices": opt.choices,
+                        "default": opt.default,
+                        "help": opt.help,
                     }
-                    for o in stage.options
+                    for opt in stage.options
                 ],
-            })
-    payload = {
-        "formats": all_formats(),
-        "edges": edges_out,
-        "version": 2,
+            }
+            for stage in STAGES.values()
+        ],
+        "version": 3,
     }
-    print(json.dumps(payload, indent=2))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -815,107 +847,114 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.introspect:
-        emit_introspection()
+        print(json.dumps(introspect_payload(), indent=2))
         return 0
 
-    # Validate required args for non-introspect modes
     if not args.src or not args.dst:
         parser.error("--from and --to are required (unless --introspect)")
+
     if not args.inputs:
         parser.error("at least one input is required")
 
-    chain = find_chain(args.src, args.dst)
-    if not chain:
-        parser.error(f"no conversion path from '{args.src}' to '{args.dst}'")
+    # Resolve chain
+    try:
+        chain = find_chain(args.src, args.dst)
+    except ValueError as e:
+        print(f"❌ {e}", file=sys.stderr)
+        return 1
 
-    # Expand directories to files (filtered to source format extensions)
+    # Per-stage option dict
+    stage_opts: dict[str, dict] = {}
+    for stage in chain:
+        opts: dict = {}
+        for opt in stage.options:
+            attr = f"opt_{stage.name}_{opt.name.replace('-', '_')}"
+            opts[opt.name.replace("-", "_")] = getattr(args, attr)
+        stage_opts[stage.name] = opts
+
+    # Expand + validate inputs
     try:
         inputs = expand_inputs(args.inputs, args.src)
     except (FileNotFoundError, ValueError) as e:
         print(f"❌ {e}", file=sys.stderr)
         return 1
 
-    first_stage = STAGES[chain[0]]
-    is_multi = first_stage.multi_input
-    is_batch = (not is_multi) and len(inputs) > 1
+    first_stage = chain[0]
 
-    # --out validation
-    if is_multi and args.out is None:
-        parser.error(
-            f"--out is required for multi-input stages "
-            f"({args.src} → {args.dst} takes N inputs → 1 output)"
-        )
-    if is_batch and args.out is not None:
-        parser.error(
-            f"--out cannot be used with multiple inputs in N→N batch mode "
-            f"(each input produces its own output)"
-        )
+    # --out semantics enforcement
+    if first_stage.multi_input:
+        if args.out is None:
+            print(
+                f"❌ --out is required for multi-input stages "
+                f"({first_stage.src} → {first_stage.dst} combines N inputs into 1 output)",
+                file=sys.stderr,
+            )
+            return 1
+    else:
+        if args.out is not None and len(inputs) > 1:
+            print(
+                f"❌ --out cannot be used with multiple inputs in a "
+                f"{first_stage.src} → {first_stage.dst} chain "
+                f"(each input produces its own output). "
+                f"Remove --out, or pass a single input.",
+                file=sys.stderr,
+            )
+            return 1
 
-    # Resolve --out: if relative, place it next to the first input's parent
-    out_override: Path | None = None
-    if args.out is not None:
-        out_path = args.out
-        if not out_path.is_absolute():
-            out_path = inputs[0].parent / out_path
-        out_override = out_path
-
-    # ── Dry run ─────────────────────────────────────────────────────────────
+    # Dry-run
     if args.dry_run:
-        print(f"Chain: {args.src} → {args.dst}", file=sys.stderr)
-        for name in chain:
-            stage = STAGES[name]
-            opts = _stage_opts(stage, args)
-            print(f"  {name}  {opts}", file=sys.stderr)
-        if is_multi:
-            print(f"Inputs ({len(inputs)}):", file=sys.stderr)
-            for p in inputs:
-                print(f"  {p}", file=sys.stderr)
-            print(f"Output: {out_override}", file=sys.stderr)
+        print("Chain: " + " → ".join([chain[0].src] + [s.dst for s in chain]))
+        for stage in chain:
+            print(f"  {stage.name}  {stage_opts[stage.name]}")
+        if first_stage.multi_input:
+            print(f"Inputs ({len(inputs)}):")
+            for inp in inputs:
+                print(f"  {inp}")
+            print(f"Output: {args.out}")
         else:
-            for p in inputs:
-                print(f"Input:  {p}", file=sys.stderr)
+            for inp in inputs:
+                print(f"Input:  {inp}")
+            if args.out:
+                print(f"Output: {args.out}")
         return 0
 
-    # ── Execute ─────────────────────────────────────────────────────────────
-    if is_multi:
-        print(f"📦 {len(inputs)} inputs → {args.dst}", file=sys.stderr)
+    # Execute
+    final_outputs: list[Path] = []
+    failures: list[tuple[Path, Exception]] = []
+
+    if first_stage.multi_input:
+        # N → 1: one shot
         try:
             final = _run_multi_chain(
-                inputs, chain, args,
-                out_override=out_override,  # required, guaranteed non-None above
-                keep_intermediate=args.keep_intermediate,
-                force=args.force,
+                inputs, chain, stage_opts, args.out,
+                args.keep_intermediate, args.force,
             )
-            print(final)
-            return 0
+            final_outputs.append(final)
         except Exception as e:
             print(f"❌ {e}", file=sys.stderr)
             return 2
+    else:
+        # N → N: loop with per-file error isolation
+        for inp in inputs:
+            try:
+                final = _run_single_chain(
+                    inp, chain, stage_opts,
+                    args.out if len(inputs) == 1 else None,
+                    args.keep_intermediate, args.force,
+                )
+                final_outputs.append(final)
+            except Exception as e:
+                print(f"❌ {inp.name}: {e}", file=sys.stderr)
+                failures.append((inp, e))
 
-    # Single-input chain — loop over inputs for batching
-    ok, failed = 0, 0
-    final_paths: list[Path] = []
-    for input_path in inputs:
-        print(f"📄 {input_path.name}", file=sys.stderr)
-        try:
-            final = _run_single_chain(
-                input_path, chain, args,
-                out_override=out_override if len(inputs) == 1 else None,
-                keep_intermediate=args.keep_intermediate,
-                force=args.force,
-            )
-            final_paths.append(final)
-            ok += 1
-        except Exception as e:
-            print(f"   ❌ {e}", file=sys.stderr)
-            failed += 1
+    # Final outputs to stdout (one per line) — lets callers parse what was produced
+    for f in final_outputs:
+        print(f)
 
-    for p in final_paths:
-        print(p)
+    if len(inputs) > 1 and not first_stage.multi_input:
+        print(f"── {len(final_outputs)} ok, {len(failures)} failed", file=sys.stderr)
 
-    if len(inputs) > 1:
-        print(f"── {ok} ok, {failed} failed", file=sys.stderr)
-    return 0 if failed == 0 else 2
+    return 0 if not failures else 2
 
 
 if __name__ == "__main__":

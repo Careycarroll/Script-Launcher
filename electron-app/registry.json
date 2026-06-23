@@ -150,12 +150,14 @@
             ]
           },
           {
-            "label": "Compress output",
+            "label": "Image quality",
             "flag": "--pptx-compress",
-            "default": "yes",
+            "default": "medium",
             "options": [
-              "yes",
-              "no"
+              "none",
+              "small",
+              "medium",
+              "large"
             ]
           }
         ]
