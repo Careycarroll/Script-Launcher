@@ -430,3 +430,37 @@ body {
   flex: 1;
   overflow: hidden;
 }
+
+/* ── Tooltip badge on arg labels ───────────────────────────────────────── */
+.arg-tooltip {
+  display: inline-block;
+  margin-left: 6px;
+  width: 16px;
+  height: 16px;
+  line-height: 16px;
+  text-align: center;
+  font-size: 11px;
+  border-radius: 50%;
+  background: var(--bg-deep, #0d1117);
+  color: var(--unc-blue, #4B9CD3);
+  border: 1px solid var(--unc-blue, #4B9CD3);
+  cursor: help;
+  user-select: none;
+}
+
+/* ── Checkbox row — used by type: "checkbox" widgets ───────────────────── */
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 14px;
+}
+
+.checkbox-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--unc-blue, #4B9CD3);
+  cursor: pointer;
+}

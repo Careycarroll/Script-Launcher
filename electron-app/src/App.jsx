@@ -30,7 +30,13 @@ function App() {
   function selectScript(groupIdx, scriptIdx) {
     const s = groups[groupIdx].scripts[scriptIdx];
     setSelected({ groupIdx, scriptIdx });
-    setArgs(s.argDefs ? s.argDefs.map(d => d.default || '') : []);
+    // Default-initialize args. Checkboxes (booleans) need explicit string
+    // representation so the existing string[] state works unchanged.
+    setArgs(s.argDefs ? s.argDefs.map(d => {
+      if (d.type === 'checkbox') return d.default ? 'true' : 'false';
+      if (d.default == null) return '';
+      return String(d.default);
+    }) : []);
     setFileQueue([]);
     setQueueMode(null);
     setOutput('');
@@ -82,14 +88,31 @@ function App() {
     // Build argv client-side: walk argDefs, attach flags to values, collect
     // positionals in order. Pass verbatim to main.ts — no index-based
     // reconstruction in main, which breaks when multiFile expands the array.
+    //
+    // Per-widget rules:
+    //   checkbox + invertFlag: pass --flag only when UNchecked
+    //   checkbox (no invert):  pass --flag only when checked (no value)
+    //   number:                skip empty; otherwise pass --flag <value>
+    //   anything else:         skip empty; pass --flag <value> or positional
     const flags = [];
     const positional = [];
     (script.argDefs || []).forEach((def, i) => {
       if (def.multiFile) return;
       const v = args[i];
+
+      if (def.type === 'checkbox') {
+        const checked = v === 'true' || v === true;
+        if (def.invertFlag) {
+          if (!checked && def.flag) flags.push(def.flag);
+        } else {
+          if (checked && def.flag) flags.push(def.flag);
+        }
+        return;
+      }
+
       if (v === '' || v == null) return;
-      if (def.flag) { flags.push(def.flag, v); return; }
-      positional.push(v);
+      if (def.flag) { flags.push(def.flag, String(v)); return; }
+      positional.push(String(v));
     });
 
     const finalArgs = isMultiFile
@@ -207,13 +230,86 @@ function App() {
                 </>
               )}
 
-              {/* Standard args — rendered using original index to keep args[] aligned */}
+              {/* Standard args — rendered using original index to keep args[] aligned.
+                  Widget chosen by def.type, falling back to options/text. */}
               {script.argDefs?.map((def, i) => {
                 if (def.multiFile) return null;
                 if (def.hidden) return null;
+
+                const label = (
+                  <div className="arg-label">
+                    {def.label}
+                    {def.tooltip && (
+                      <span className="arg-tooltip" title={def.tooltip}>?</span>
+                    )}
+                  </div>
+                );
+
+                // Checkbox
+                if (def.type === 'checkbox') {
+                  const checked = args[i] === 'true' || args[i] === true;
+                  return (
+                    <div key={i} className="arg-group">
+                      {label}
+                      <div className="arg-row">
+                        <label className="checkbox-row">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={e => setArg(i, e.target.checked ? 'true' : 'false')}
+                          />
+                          <span>{def.checkboxLabel || 'Enabled'}</span>
+                        </label>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Number
+                if (def.type === 'number') {
+                  return (
+                    <div key={i} className="arg-group">
+                      {label}
+                      <div className="arg-row">
+                        <input
+                          type="number"
+                          className="arg-input"
+                          value={args[i] ?? ''}
+                          placeholder={def.default != null ? String(def.default) : ''}
+                          min={def.min}
+                          max={def.max}
+                          step={def.step || 1}
+                          onChange={e => setArg(i, e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Output directory picker — text + Pick Folder, labeled for output
+                if (def.type === 'outputDir') {
+                  return (
+                    <div key={i} className="arg-group">
+                      {label}
+                      <div className="arg-row">
+                        <input
+                          className="arg-input"
+                          value={args[i] || ''}
+                          placeholder={def.placeholder || 'Same as input folder'}
+                          onChange={e => setArg(i, e.target.value)}
+                        />
+                        <button className="btn-pick" onClick={() => pickFolder(i)}>
+                          Pick Folder
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                // Default: dropdown if options, else text input (existing behavior).
                 return (
                   <div key={i} className="arg-group">
-                    <div className="arg-label">{def.label}</div>
+                    {label}
                     <div className="arg-row">
                       {def.options && def.options.length > 0 ? (
                         <select

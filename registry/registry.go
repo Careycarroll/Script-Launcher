@@ -104,6 +104,38 @@ var Groups = []Group{
 					{Label: "Compression", Default: "ebook", Flag: "-c", Options: []string{"screen", "ebook", "printer", "prepress", "default", "none"}},
 				},
 			},
+			{
+  "name": "PPTX → Text",
+  "description": "Extract plain text from PowerPoint presentations",
+  "path": "python/scripts/docpipe.py",
+  "runtime": "python",
+  "help": "Converts .pptx files to plain text in one step. Internally runs PowerPoint export to PDF, then text extraction with layout reconstruction. The intermediate PDF is kept alongside the text file. Requires Microsoft PowerPoint installed. macOS only for now.",
+  "interactive": false,
+  "argDefs": [
+    { "flag": "--from", "default": "pptx", "hidden": true },
+    { "flag": "--to",   "default": "txt",  "hidden": true },
+    {
+      "label": "PPTX files (files or folder)",
+      "filePicker": true,
+      "dirPicker": true,
+      "multiFile": true,
+      "extensions": ["pptx"]
+    },
+    {
+      "label": "Intermediate PDF quality",
+      "flag": "--pptx-compress",
+      "default": "medium",
+      "options": ["none", "small", "medium", "large"]
+    },
+    {
+      "label": "Text layout",
+      "flag": "--pdf-layout",
+      "default": "layout",
+      "options": ["layout", "plain"]
+    }
+  ]
+}
 		},
+		
 	},
 }

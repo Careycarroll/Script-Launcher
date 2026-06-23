@@ -820,6 +820,12 @@ def build_parser() -> argparse.ArgumentParser:
                 help=opt.help,
             )
 
+    p.add_argument("--out-dir", type=Path, default=None,
+                   help="Directory to write outputs to. Auto-names within the directory. "
+                        "Mutually exclusive with --out.")
+    p.add_argument("--echo", action="store_true",
+                   help="Debug: print argv as JSON to stdout and exit. "
+                        "Used by the renderer to verify flag wiring.")
     p.add_argument("inputs", nargs="*", type=str,
                    help="Input file paths or directories.")
     return p
@@ -852,6 +858,15 @@ def introspect_payload() -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Intercept --echo BEFORE argparse so it survives even invalid args.
+    # The whole point of --echo is to inspect what reached the script,
+    # which matters most when something is wrong.
+    raw_argv = list(argv) if argv is not None else sys.argv[1:]
+    if "--echo" in raw_argv:
+        payload = {"received_argv": raw_argv}
+        print(json.dumps(payload, indent=2))
+        return 0
+
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -889,6 +904,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     first_stage = chain[0]
+
+    # --out vs --out-dir mutual exclusion
+    if args.out is not None and args.out_dir is not None:
+        print("❌ --out and --out-dir are mutually exclusive", file=sys.stderr)
+        return 1
 
     # --out semantics enforcement
     if first_stage.multi_input:
@@ -945,10 +965,16 @@ def main(argv: list[str] | None = None) -> int:
     else:
         # N → N: loop with per-file error isolation
         for inp in inputs:
+            # Derive the effective output path: explicit --out wins; else if
+            # --out-dir is set, auto-name within it; else default (alongside input).
+            effective_out = args.out if len(inputs) == 1 else None
+            if effective_out is None and args.out_dir is not None:
+                last = chain[-1]
+                effective_out = args.out_dir / f"{inp.stem}.{last.dst}"
             try:
                 final = _run_single_chain(
                     inp, chain, stage_opts,
-                    args.out if len(inputs) == 1 else None,
+                    effective_out,
                     args.keep_intermediate, args.force,
                 )
                 final_outputs.append(final)
