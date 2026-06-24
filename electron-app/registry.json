@@ -161,6 +161,73 @@
             ]
           }
         ]
+      },
+      {
+        "name": "PPTX \u2192 Text",
+        "description": "Extract plain text from PowerPoint presentations",
+        "path": "python/scripts/docpipe.py",
+        "runtime": "python",
+        "help": "Converts .pptx files to plain text in one step. Internally runs PowerPoint export to PDF, then text extraction with layout reconstruction. The intermediate PDF is kept by default. Requires Microsoft PowerPoint installed. macOS only for now.",
+        "interactive": false,
+        "argDefs": [
+          {
+            "flag": "--from",
+            "default": "pptx",
+            "hidden": true
+          },
+          {
+            "flag": "--to",
+            "default": "txt",
+            "hidden": true
+          },
+          {
+            "label": "PPTX files (files or folder)",
+            "filePicker": true,
+            "dirPicker": true,
+            "multiFile": true,
+            "extensions": [
+              "pptx"
+            ]
+          },
+          {
+            "label": "Image quality",
+            "flag": "--pptx-compress",
+            "default": "medium",
+            "options": [
+              "none",
+              "small",
+              "medium",
+              "large"
+            ],
+            "tooltip": "DPI for embedded images in the intermediate PDF. medium = 150 DPI (balanced). small = 72 DPI (smallest). large = 300 DPI (print quality). none = PowerPoint raw."
+          },
+          {
+            "label": "Text layout",
+            "flag": "--pdf-layout",
+            "default": "layout",
+            "options": [
+              "layout",
+              "plain"
+            ],
+            "tooltip": "layout preserves columns and tables via row reconstruction. plain extracts continuous reading-order text."
+          },
+          {
+            "label": "Output folder",
+            "type": "outputDir",
+            "flag": "--out-dir",
+            "placeholder": "Same as input folder",
+            "tooltip": "Where to save the final .txt file. Intermediate PDF stays beside the input."
+          },
+          {
+            "label": "Keep intermediate PDF",
+            "type": "checkbox",
+            "flag": "--no-keep-intermediate",
+            "default": true,
+            "invertFlag": true,
+            "checkboxLabel": "Keep the PDF produced during conversion",
+            "tooltip": "Checked (default) keeps the intermediate .pdf alongside the .txt. Unchecked discards it after the .txt is produced."
+          }
+        ]
       }
     ]
   },
