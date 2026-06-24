@@ -1,6 +1,6 @@
 # ⚡ Script Launcher
 
-A multi-interface script launcher for macOS — three frontends, one registry. Add a script once in `registry/registry.go` and it appears everywhere.
+A multi-interface script launcher for macOS — three frontends, two registries. Add a script once in `registry/registry.go` (TUI + GUI) or `electron-app/registry.json` (Electron) and it appears in that frontend.
 
 ---
 
@@ -10,7 +10,9 @@ A multi-interface script launcher for macOS — three frontends, one registry. A
 |---|---|---|
 | **TUI** | Go + Bubble Tea | Terminal sessions, SSH, lightweight |
 | **GUI** | Go + Wails + React | Native-feeling app, file pickers, quick access |
-| **Electron** | Electron + React + xterm.js | Full embedded terminal, interactive scripts in-app |
+| **Electron** | Electron + React + xterm.js | Embedded terminal, bundled Python pipeline |
+
+TUI and GUI share `registry/registry.go` and call out to local scripts in `~/bin`. Electron has its own `registry.json` and bundles a Python venv for document processing — fully self-contained, no Homebrew dependencies for the document scripts.
 
 ---
 
@@ -19,31 +21,29 @@ A multi-interface script launcher for macOS — three frontends, one registry. A
 ```
 Script-Launcher/
 ├── registry/
-│   └── registry.go         # Shared script definitions (TUI + GUI)
-├── registry.json            # Shared script definitions (Electron)
+│   └── registry.go            # TUI + GUI shared registry
 ├── tui/
-│   └── main.go             # Bubble Tea terminal UI
+│   └── main.go
 ├── gui/
-│   ├── app.go              # Wails Go backend
-│   ├── main.go             # Wails app entry point
-│   └── frontend/
-│       └── src/
-│           ├── App.jsx     # React frontend
-│           └── App.css     # Styles (UNC × Tokyo Night palette)
+│   ├── app.go
+│   ├── main.go
+│   └── frontend/...
 ├── electron-app/
 │   ├── src/
-│   │   ├── main.ts         # Electron main process + IPC handlers
-│   │   ├── preload.ts      # IPC bridge (security boundary)
-│   │   ├── renderer.tsx    # React entry point
-│   │   ├── App.jsx         # Shared React frontend
-│   │   ├── App.css         # Shared styles
-│   │   └── Terminal.jsx    # xterm.js terminal component
+│   │   ├── main.ts            # Electron main process
+│   │   ├── preload.ts
+│   │   ├── renderer.tsx
+│   │   ├── App.jsx
+│   │   ├── App.css
+│   │   └── Terminal.jsx
 │   ├── resources/
 │   │   ├── bin/
-│   │   │   └── ffmpeg      # Bundled static binary (not in git — see electron README)
+│   │   │   └── ffmpeg         # Static binary (not in git)
 │   │   └── python/
-│   │       └── venv/       # Bundled Python 3.13.5 + pymupdf
-│   ├── registry.json       # Script registry
+│   │       ├── venv/          # Python 3.13.5 + pymupdf + pikepdf + Pillow
+│   │       └── scripts/
+│   │           └── docpipe.py # Unified conversion pipeline
+│   ├── registry.json
 │   └── package.json
 ├── go.mod
 └── go.sum
@@ -55,19 +55,20 @@ Script-Launcher/
 
 ### All Frontends
 - **ffmpeg** — `brew install ffmpeg` (Lecture Merge) — bundled in Electron full build
-- **Microsoft PowerPoint** — required for PPTX → PDF conversion
+- **Microsoft PowerPoint** — required for PPTX-related conversions
 
 ### TUI + GUI
 - **pdftotext** — `brew install poppler` (PDF → Text)
 - **Ghostscript** — `brew install ghostscript` (PPTX → PDF compression)
 - **Go** 1.22+
 - **Wails** v2 — `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
-- **Node.js** — for the React frontend (managed by Wails)
+- **Node.js** (managed by Wails)
 
 ### Electron
 - **Node.js** 18+
 - **npm** 9+
 - See [`electron-app/README.md`](electron-app/README.md) for full setup
+- No poppler or ghostscript needed — document scripts run through bundled Python
 
 ---
 
@@ -91,7 +92,7 @@ go build -o scripttui ./tui/
 | `Enter` | Select / confirm |
 | `f` | Open file picker |
 | `d` | Open folder picker |
-| `←` / `→` | Cycle through options (e.g. compression) |
+| `←` / `→` | Cycle through options |
 | `Backspace` | Remove last queued file |
 | `Esc` / `b` | Go back |
 | `q` | Quit |
@@ -116,7 +117,7 @@ cd electron-app && npm start    # Development
 cd electron-app && npm run make # Package as .app
 ```
 
-See [`electron-app/README.md`](electron-app/README.md) for full setup and usage.
+See [`electron-app/README.md`](electron-app/README.md) for setup, architecture, and the `docpipe.py` conversion pipeline.
 
 ---
 
@@ -124,10 +125,12 @@ See [`electron-app/README.md`](electron-app/README.md) for full setup and usage.
 
 ### Vault
 
-| Script | Description |
-|---|---|
-| **Manage Vault** | Full vault management TUI — launches in a Terminal window |
-| **Vault Health** | Scan vault for broken wikilinks and orphaned notes |
+| Script | Frontends | Description |
+|---|---|---|
+| **Manage Vault** | TUI / GUI / Electron | Full vault management TUI — launches in a Terminal window |
+| **Vault Health** | TUI / GUI / Electron | Scan vault for broken wikilinks and orphaned notes |
+
+`Add Vault Link` and `Cleanup Vault Tools` are TUI/GUI-only — local-machine workflow, not bundled into Electron.
 
 ### Video
 
@@ -137,10 +140,21 @@ See [`electron-app/README.md`](electron-app/README.md) for full setup and usage.
 
 ### Documents
 
+TUI and GUI use local Homebrew tools (pdftotext, ghostscript). Electron runs everything through bundled `docpipe.py` — a single Python entry point with a stage-graph architecture.
+
 | Script | Description |
 |---|---|
-| **PDF → Text** | Convert one or more PDFs to plain text using pdftotext |
-| **PPTX → PDF** | Convert .pptx files to PDF via PowerPoint + Ghostscript |
+| **PDF → Text** | Extract text from PDFs with column/table layout reconstruction |
+| **Images → PDF** | Combine images into a single PDF (per-image or fixed page size) |
+| **PPTX → PDF** | Convert PowerPoint to PDF with image downsampling presets |
+| **PPTX → Text** | Chained PPTX → PDF → Text in one step (Electron only) |
+
+Conversion graph in `docpipe.py`:
+- `pdf → txt`
+- `images → pdf`
+- `pptx → pdf`
+
+Chained paths are auto-routed via BFS — `pptx → txt` resolves to `pptx → pdf → txt` with no extra stage code.
 
 ---
 
@@ -163,18 +177,19 @@ Edit `registry/registry.go` — add a `Script{}` block to an existing group or c
 ```
 
 ### Electron
-Edit `electron-app/registry.json` — add a script object to the appropriate group:
+Edit `electron-app/registry.json`. Full widget reference in [`electron-app/README.md`](electron-app/README.md). Example:
 
 ```json
 {
   "name": "My Script",
-  "description": "Short description shown in the menu",
-  "path": "/Users/careycarroll/bin/my_script",
-  "help": "Longer description shown on the detail screen.",
+  "description": "Short description",
+  "path": "python/scripts/docpipe.py",
+  "runtime": "python",
+  "help": "Detail screen text.",
   "interactive": false,
   "argDefs": [
-    { "label": "Input file", "filePicker": true },
-    { "label": "Mode", "default": "fast", "options": ["fast", "slow", "verbose"] }
+    { "label": "Input file", "filePicker": true, "extensions": ["pdf"] },
+    { "label": "Mode", "default": "fast", "options": ["fast", "slow"] }
   ]
 }
 ```
@@ -185,12 +200,19 @@ Edit `electron-app/registry.json` — add a script object to the appropriate gro
 |---|---|
 | `filePicker` | Opens a file picker dialog |
 | `dirPicker` | Opens a folder picker dialog |
-| `setWorkDir` | Sets selected path as the script's working directory |
+| `setWorkDir` | Sets selected path as the script's working directory (TUI/GUI) |
 | `multiFile` | Enables a file/folder queue (multiple inputs) |
 | `batchArgs` | Passes all queued files as args in one script call |
 | `options` | Renders a dropdown / left-right selector |
 | `flag` | Prepends a flag before the value (e.g. `-c ebook`) |
 | `interactive` | Launches script in embedded terminal (Electron) or Terminal window (TUI/GUI) |
+| `extensions` | Restricts file picker to listed extensions (Electron) |
+| `hidden` | Don't render in UI; flag/value still passed (Electron) |
+| `type: "checkbox"` | Boolean widget (Electron) |
+| `type: "number"` | Numeric widget with optional `min`, `max`, `step` (Electron) |
+| `type: "outputDir"` | Folder picker labeled for output, maps to `--out-dir` (Electron) |
+| `invertFlag` | For checkboxes: pass flag only when UNchecked (for `--no-*` flags) |
+| `tooltip` | Hover tooltip rendered as `?` icon on the label (Electron) |
 
 ---
 
@@ -211,14 +233,14 @@ UNC Carolina Blue `#4B9CD3` and Navy `#13294B` paired with Tokyo Night.
 
 ## Backlog
 
-- [ ] Electron — rewrite `pdf2txt` using bundled pymupdf (removes pdftotext dependency)
-- [ ] Electron — rewrite `pptx2pdf` compression using pymupdf (removes ghostscript dependency)
-- [ ] Electron — bundle pdftotext static binary or complete pymupdf migration
+- [ ] Electron — group hiding (`"hidden": true` at the registry group level) for Developer test group
+- [ ] Electron — builder UI: drop a file, see suggested conversion chains from the introspection graph
 - [ ] Electron — Lite build with ephemeral dependency downloads + consent dialog
 - [ ] Electron — Full build with all binaries bundled
-- [ ] Electron — Two build targets: `npm run make:lite` and `npm run make:full`
+- [ ] Electron — two build targets: `npm run make:lite` and `npm run make:full`
 - [ ] Electron — theme customization panel (CSS variable editor)
-- [ ] Electron — OS-aware architecture (platform() checks, config file for paths)
-- [ ] Electron — PPTX → Text chaining (single script, full pipeline)
+- [ ] Electron — OS-aware architecture (`platform()` checks, config file for user paths)
+- [ ] Electron — `txt → md` stage (deferred — low priority)
+- [ ] Electron — `pdf → md` stage (deferred — low priority, would use `pymupdf4llm`)
 - [ ] qpdf — bookmark creation script
 - [ ] manage_vault — restore key hints below menu options
