@@ -244,7 +244,7 @@
         "argDefs": [
           {
             "flag": "--echo",
-            "default": "true",
+            "default": true,
             "hidden": true
           },
           {
@@ -268,7 +268,7 @@
         "argDefs": [
           {
             "flag": "--echo",
-            "default": "true",
+            "default": true,
             "hidden": true
           },
           {
@@ -293,7 +293,7 @@
         "argDefs": [
           {
             "flag": "--echo",
-            "default": "true",
+            "default": true,
             "hidden": true
           },
           {
@@ -315,7 +315,7 @@
         "argDefs": [
           {
             "flag": "--echo",
-            "default": "true",
+            "default": true,
             "hidden": true
           },
           {

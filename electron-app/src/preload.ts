@@ -10,7 +10,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // ── PTY / Terminal ────────────────────────────────────────────────────────
   PtyShell: () => ipcRenderer.invoke('pty-shell'),
-  PtyCreate: (scriptPath: string) => ipcRenderer.invoke('pty-create', scriptPath),
+  PtyCreate: (scriptPath: string, args?: string[]) => ipcRenderer.invoke('pty-create', scriptPath, args || []),
   PtyInput: (data: string) => ipcRenderer.send('pty-input', data),
   PtyResize: (cols: number, rows: number) => ipcRenderer.send('pty-resize', cols, rows),
   PtyKill: () => ipcRenderer.send('pty-kill'),

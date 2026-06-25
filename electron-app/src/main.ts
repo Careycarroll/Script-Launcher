@@ -76,7 +76,6 @@ ipcMain.handle('run-script', (_event, groupIdx: number, scriptIdx: number, args:
     // Args arrive fully prepared from renderer (flags already attached to
     // their values). Spawn verbatim — no index-based reconstruction here.
     const allArgs = args.filter(a => a !== '' && a != null);
-    const workDir = '';
 
     // Runtime dispatch:
     //   runtime: "python" -> spawn bundled python with resolved script path as first arg
@@ -93,7 +92,6 @@ ipcMain.handle('run-script', (_event, groupIdx: number, scriptIdx: number, args:
 
     const proc = spawn(cmd, cmdArgs, {
       env: { ...process.env },
-      cwd: workDir || undefined,
     });
 
     let output = '';
@@ -154,7 +152,7 @@ ipcMain.handle('pty-shell', (event) => {
   return true;
 });
 
-ipcMain.handle('pty-create', (event, scriptPath: string) => {
+ipcMain.handle('pty-create', (event, scriptPath: string, args: string[] = []) => {
   const shell = platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/zsh');
   const env = {
     ...process.env,
@@ -167,7 +165,11 @@ ipcMain.handle('pty-create', (event, scriptPath: string) => {
     activePty = null;
   }
 
-  activePty = pty.spawn(shell, ['-c', scriptPath], {
+  // Shell-quote each arg (single-quote, escape embedded single quotes)
+  const shellQuote = (a: string) => `'${a.replace(/'/g, `'\''`)}'`;
+  const cmdline = [scriptPath, ...args.map(shellQuote)].join(' ');
+
+  activePty = pty.spawn(shell, ['-c', cmdline], {
     name: 'xterm-256color',
     cols: 120,
     rows: 40,

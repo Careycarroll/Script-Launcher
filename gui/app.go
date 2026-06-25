@@ -18,8 +18,11 @@ type ArgData struct {
 	Default    string   `json:"default"`
 	FilePicker bool     `json:"filePicker"`
 	DirPicker  bool     `json:"dirPicker"`
+	SetWorkDir bool     `json:"setWorkDir"`
 	MultiFile  bool     `json:"multiFile"`
+	BatchArgs  bool     `json:"batchArgs"`
 	Options    []string `json:"options"`
+	Flag       string   `json:"flag"`
 }
 
 type ScriptData struct {
@@ -74,8 +77,11 @@ func (a *App) GetGroups() []GroupData {
 					Default:    arg.Default,
 					FilePicker: arg.FilePicker,
 					DirPicker:  arg.DirPicker,
+					SetWorkDir: arg.SetWorkDir,
 					MultiFile:  arg.MultiFile,
+					BatchArgs:  arg.BatchArgs,
 					Options:    arg.Options,
+					Flag:       arg.Flag,
 				})
 			}
 			gd.Scripts = append(gd.Scripts, sd)
@@ -119,20 +125,75 @@ func (a *App) RunScript(groupIdx int, scriptIdx int, args []string) RunResult {
 		return RunResult{Output: "Launched in Terminal"}
 	}
 
-	// Build flags and positional args
+	// Build flags and positional args.
+	// Multi-file scripts: frontend sends [...fileQueue, ...nonMultiArgs (in argDefs order)].
+	// We split args back using nonMultiCount, then walk each side against the right defs.
+	multiIdx := -1
+	nonMultiCount := 0
+	for i, def := range s.ArgDefs {
+		if def.MultiFile {
+			multiIdx = i
+		} else {
+			_ = i
+			nonMultiCount++
+		}
+	}
+
 	var flags []string
 	var positional []string
 	workDir := ""
-	for i, arg := range args {
-		if arg == "" {
-			continue
+
+	if multiIdx >= 0 {
+		queuedCount := len(args) - nonMultiCount
+		if queuedCount < 0 {
+			queuedCount = 0
 		}
-		if i < len(s.ArgDefs) && s.ArgDefs[i].SetWorkDir && isDir(arg) {
-			workDir = arg
-		} else if i < len(s.ArgDefs) && s.ArgDefs[i].Flag != "" {
-			flags = append(flags, s.ArgDefs[i].Flag, arg)
-		} else {
-			positional = append(positional, arg)
+		queuedFiles := args[:queuedCount]
+		nonMultiArgs := args[queuedCount:]
+
+		nonMultiDefs := make([]registry.Arg, 0, nonMultiCount)
+		for _, def := range s.ArgDefs {
+			if !def.MultiFile {
+				nonMultiDefs = append(nonMultiDefs, def)
+			}
+		}
+		for i, arg := range nonMultiArgs {
+			if arg == "" {
+				continue
+			}
+			if i >= len(nonMultiDefs) {
+				positional = append(positional, arg)
+				continue
+			}
+			def := nonMultiDefs[i]
+			if def.SetWorkDir && isDir(arg) {
+				workDir = arg
+			} else if def.Flag != "" {
+				flags = append(flags, def.Flag, arg)
+			} else {
+				positional = append(positional, arg)
+			}
+		}
+		multiDef := s.ArgDefs[multiIdx]
+		for _, f := range queuedFiles {
+			if multiDef.SetWorkDir && isDir(f) {
+				workDir = f
+			} else {
+				positional = append(positional, f)
+			}
+		}
+	} else {
+		for i, arg := range args {
+			if arg == "" {
+				continue
+			}
+			if i < len(s.ArgDefs) && s.ArgDefs[i].SetWorkDir && isDir(arg) {
+				workDir = arg
+			} else if i < len(s.ArgDefs) && s.ArgDefs[i].Flag != "" {
+				flags = append(flags, s.ArgDefs[i].Flag, arg)
+			} else {
+				positional = append(positional, arg)
+			}
 		}
 	}
 	allArgs := append(flags, positional...)

@@ -100,6 +100,12 @@ function App() {
       if (def.multiFile) return;
       const v = args[i];
 
+      // Hidden boolean flags (store_true style): emit flag alone, no value.
+      if (def.hidden && def.flag && def.default === true) {
+        flags.push(def.flag);
+        return;
+      }
+
       if (def.type === 'checkbox') {
         const checked = v === 'true' || v === true;
         if (def.invertFlag) {
@@ -121,7 +127,7 @@ function App() {
 
     if (script.interactive) {
       setActiveTab('terminal');
-      await PtyCreate(script.path);
+      await PtyCreate(script.path, finalArgs);
       setStatus('idle');
       return;
     }

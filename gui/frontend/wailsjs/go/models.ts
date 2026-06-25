@@ -5,8 +5,11 @@ export namespace main {
 	    default: string;
 	    filePicker: boolean;
 	    dirPicker: boolean;
+	    setWorkDir: boolean;
 	    multiFile: boolean;
+	    batchArgs: boolean;
 	    options: string[];
+	    flag: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ArgData(source);
@@ -18,8 +21,11 @@ export namespace main {
 	        this.default = source["default"];
 	        this.filePicker = source["filePicker"];
 	        this.dirPicker = source["dirPicker"];
+	        this.setWorkDir = source["setWorkDir"];
 	        this.multiFile = source["multiFile"];
+	        this.batchArgs = source["batchArgs"];
 	        this.options = source["options"];
+	        this.flag = source["flag"];
 	    }
 	}
 	export class ScriptData {
