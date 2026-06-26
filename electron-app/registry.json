@@ -192,6 +192,41 @@
           }
         ],
         "operation": "pptx_to_txt"
+      },
+      {
+        "name": "PDF Merge",
+        "description": "Combine multiple PDFs into a single file",
+        "path": "python/scripts/docpipe.py",
+        "runtime": "python",
+        "operation": "pdf_merge",
+        "help": "Merges PDFs in the order queued. Top-level bookmarks are created at each source file boundary by default (named after the filename). Metadata from the first file is preserved in the output.",
+        "interactive": false,
+        "argDefs": [
+          {
+            "label": "PDF files (files or folder)",
+            "filePicker": true,
+            "dirPicker": true,
+            "multiFile": true,
+            "extensions": [
+              "pdf"
+            ]
+          },
+          {
+            "label": "Output filename",
+            "flag": "--out",
+            "default": "merged.pdf"
+          },
+          {
+            "label": "Bookmarks",
+            "flag": "--pdf_merge-bookmarks",
+            "default": "yes",
+            "options": [
+              "yes",
+              "no"
+            ],
+            "tooltip": "yes (default) adds a bookmark per source file in the merged PDF, named after the source filename. no = raw concatenation."
+          }
+        ]
       }
     ]
   },

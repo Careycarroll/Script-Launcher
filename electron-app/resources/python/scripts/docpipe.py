@@ -471,6 +471,50 @@ def op_pptx_to_pdf(input_path: Path, opts: dict, output_path: Path) -> Path:
     return output_path
 
 
+
+# ─── Operation: pdf_merge ─────────────────────────────────────────────────────
+
+def op_pdf_merge(inputs: list[Path], opts: dict, output_path: Path) -> Path:
+    """Merge N PDFs into one. Multi-input: N PDFs → 1 PDF.
+    Options:
+      bookmarks: 'yes' (default) creates a top-level bookmark per source file,
+                 named after the file stem. 'no' = raw concatenation.
+    """
+    bookmarks = opts.get("bookmarks", "yes") == "yes"
+
+    out_doc = pymupdf.open()
+    toc: list[list] = []  # [[level, title, page], ...]
+    metadata_source = None
+
+    try:
+        for src_path in inputs:
+            src_doc = pymupdf.open(src_path)
+            try:
+                # Bookmark points at the page where this file starts
+                start_page = out_doc.page_count
+                if metadata_source is None:
+                    # Capture metadata from first file for the merged output
+                    metadata_source = dict(src_doc.metadata or {})
+                out_doc.insert_pdf(src_doc)
+                if bookmarks:
+                    # pymupdf TOC uses 1-indexed page numbers
+                    toc.append([1, src_path.stem, start_page + 1])
+            finally:
+                src_doc.close()
+
+        if bookmarks and toc:
+            out_doc.set_toc(toc)
+        if metadata_source:
+            # Preserve first file's metadata in the merged output
+            out_doc.set_metadata(metadata_source)
+
+        out_doc.save(output_path, garbage=4, deflate=True)
+    finally:
+        out_doc.close()
+
+    return output_path
+
+
 # ─── Operations registry ──────────────────────────────────────────────────────
 
 OPERATIONS: dict[str, Operation] = {
@@ -489,6 +533,15 @@ OPERATIONS: dict[str, Operation] = {
         options=[
             OpOption(name="page_size", choices=["auto", "letter", "a4"], default="auto",
                      help="auto = page per image; letter/a4 = fixed page with contain-fit."),
+        ],
+    ),
+    "pdf_merge": Operation(
+        name="pdf_merge", src="pdf", dst="pdf", fn=op_pdf_merge,
+        input_arity="many",
+        description="Merge multiple PDFs into one in queue order.",
+        options=[
+            OpOption(name="bookmarks", choices=["yes", "no"], default="yes",
+                     help="Create top-level bookmarks at each source file boundary."),
         ],
     ),
     "pptx_to_pdf": Operation(
@@ -799,6 +852,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.out is not None and args.out_dir is not None:
         print("❌ --out and --out-dir are mutually exclusive", file=sys.stderr)
         return 1
+
+    # Bare --out filename (no directory): resolve against first input's folder.
+    # Matches user expectation that "merged.pdf" lands next to the source files,
+    # not in the spawning process's cwd (which is the Electron app dir).
+    if args.out is not None and args.out.parent == Path("."):
+        args.out = inputs[0].parent / args.out.name
 
     if first_op.input_arity == "many":
         if args.out is None:
