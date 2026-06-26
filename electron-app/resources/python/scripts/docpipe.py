@@ -77,6 +77,7 @@ class Operation:
     output_arity: str = "one"  # "one" | "many"
     options: list[OpOption] = field(default_factory=list)
     description: str = ""
+    output_suffix: str = ""    # if set: {stem}{suffix}.{ext} + always overwrite
 
 
 # ─── Format → recognized extensions ───────────────────────────────────────────
@@ -550,6 +551,88 @@ def op_pdf_strip(input_path: Path, opts: dict, output_path: Path) -> Path:
     return output_path
 
 
+
+# ─── Operation: pdf_bookmark_add ──────────────────────────────────────────────
+
+def _parse_bookmark_list(raw: str, page_count: int) -> list[tuple[int, str]]:
+    """Parse the textarea input into [(page_1indexed, title), ...].
+
+    Format: one entry per line, "page:title".
+      - Blank lines ignored.
+      - Lines starting with # are comments, ignored.
+      - First colon is the separator; rest of line is the title.
+      - Page numbers must be 1..page_count; rejected otherwise.
+      - Duplicates allowed (PDF spec doesn't forbid).
+    """
+    out: list[tuple[int, str]] = []
+    for lineno, raw_line in enumerate(raw.splitlines(), 1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if ":" not in line:
+            raise ValueError(f"Line {lineno}: missing ':' separator → {raw_line!r}")
+        page_str, title = line.split(":", 1)
+        try:
+            page = int(page_str.strip())
+        except ValueError:
+            raise ValueError(f"Line {lineno}: page is not a number → {raw_line!r}")
+        title = title.strip()
+        if not title:
+            raise ValueError(f"Line {lineno}: empty title → {raw_line!r}")
+        if not 1 <= page <= page_count:
+            raise ValueError(
+                f"Line {lineno}: page {page} out of range (PDF has {page_count} pages)"
+            )
+        out.append((page, title))
+    if not out:
+        raise ValueError("No bookmark entries provided.")
+    return out
+
+
+def op_pdf_bookmark_add(input_path: Path, opts: dict, output_path: Path) -> Path:
+    """Add bookmarks to a PDF from a plain-text list of 'page:title' lines."""
+    raw = opts.get("list", "")
+    if not raw.strip():
+        raise ValueError("Bookmark list is empty. Provide page:title lines.")
+
+    doc = pymupdf.open(input_path)
+    try:
+        entries = _parse_bookmark_list(raw, doc.page_count)
+        # pymupdf TOC format: [[level, title, page_1indexed], ...]
+        toc = [[1, title, page] for page, title in entries]
+        doc.set_toc(toc)
+        doc.save(output_path, garbage=4, deflate=True)
+    finally:
+        doc.close()
+    return output_path
+
+
+# ─── Operation: pdf_bookmark_extract ──────────────────────────────────────────
+
+def op_pdf_bookmark_extract(input_path: Path, opts: dict, output_path: Path) -> Path:
+    """Extract bookmarks from a PDF to a plain-text 'page:title' list."""
+    doc = pymupdf.open(input_path)
+    try:
+        toc = doc.get_toc(simple=True)  # [[level, title, page], ...]
+    finally:
+        doc.close()
+
+    if not toc:
+        output_path.write_text(
+            "# No bookmarks found in this PDF.\n",
+            encoding="utf-8",
+        )
+        return output_path
+
+    lines = [f"# Bookmarks extracted from {input_path.name}", ""]
+    for level, title, page in toc:
+        # v1: flatten nested bookmarks (level info preserved as comment for now)
+        indent = "  " * (level - 1) if level > 1 else ""
+        lines.append(f"{indent}{page}:{title}")
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return output_path
+
+
 # ─── Operations registry ──────────────────────────────────────────────────────
 
 OPERATIONS: dict[str, Operation] = {
@@ -579,10 +662,26 @@ OPERATIONS: dict[str, Operation] = {
                      help="Create top-level bookmarks at each source file boundary."),
         ],
     ),
+    "pdf_bookmark_add": Operation(
+        name="pdf_bookmark_add", src="pdf", dst="pdf", fn=op_pdf_bookmark_add,
+        description="Add bookmarks to a PDF from a 'page:title' list.",
+        options=[
+            OpOption(name="list", choices=[], default="",
+                     help="Plain text, one entry per line: page:title. Blank lines + # comments OK."),
+        ],
+        output_suffix="_bookmarked",
+    ),
+    "pdf_bookmark_extract": Operation(
+        name="pdf_bookmark_extract", src="pdf", dst="txt", fn=op_pdf_bookmark_extract,
+        description="Extract existing bookmarks to a plain-text 'page:title' list.",
+        options=[],
+        output_suffix="_bookmarks",
+    ),
     "pdf_strip": Operation(
         name="pdf_strip", src="pdf", dst="pdf", fn=op_pdf_strip,
         description="Remove all metadata from a PDF (info dict + XMP + /ID).",
         options=[],
+        output_suffix="_stripped",
     ),
     "pptx_to_pdf": Operation(
         name="pptx_to_pdf", src="pptx", dst="pdf", fn=op_pptx_to_pdf,
@@ -687,6 +786,10 @@ def _run_chain_single(
                 target_dir = out_path.parent
                 target_stem = out_path.stem
                 target = resolve_output_path(target_dir, target_stem, op.dst, force)
+            elif op.output_suffix:
+                # Stable suffix mode: always overwrite, no _1/_2 incrementing
+                target_dir = input_path.parent
+                target = target_dir / f"{current.stem}{op.output_suffix}.{op.dst}"
             else:
                 target_dir = input_path.parent
                 target = resolve_output_path(target_dir, current.stem, op.dst, force)
@@ -779,13 +882,14 @@ def build_parser() -> argparse.ArgumentParser:
     # Per-operation options, namespaced as --{op_name}-{option_name}
     for op in OPERATIONS.values():
         for opt in op.options:
-            p.add_argument(
-                f"--{op.name}-{opt.name}",
-                dest=f"opt_{op.name}_{opt.name}",
-                choices=opt.choices,
-                default=opt.default,
-                help=opt.help,
-            )
+            kwargs = {
+                "dest": f"opt_{op.name}_{opt.name}",
+                "default": opt.default,
+                "help": opt.help,
+            }
+            if opt.choices:
+                kwargs["choices"] = opt.choices
+            p.add_argument(f"--{op.name}-{opt.name}", **kwargs)
 
     p.add_argument("inputs", nargs="*", type=str,
                    help="Input file paths or directories.")

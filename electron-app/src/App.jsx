@@ -436,6 +436,24 @@ function App() {
                   );
                 }
 
+                // Textarea (multi-line text input)
+                if (def.type === 'textarea') {
+                  return (
+                    <div key={i} className="arg-group">
+                      {label}
+                      <div className="arg-row">
+                        <textarea
+                          className="arg-input arg-textarea"
+                          value={args[i] || ''}
+                          placeholder={def.placeholder || ''}
+                          rows={def.rows || 8}
+                          onChange={e => setArg(i, e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  );
+                }
+
                 // Number
                 if (def.type === 'number') {
                   return (
