@@ -1,6 +1,6 @@
 # ⚡ Script Launcher — Electron
 
-The Electron frontend for Script Launcher. Provides a native macOS app with an embedded xterm.js terminal and a self-contained Python pipeline for document conversion.
+The Electron frontend for Script Launcher. Provides a native macOS app with an embedded xterm.js terminal, a self-contained Python pipeline for document operations, and a live theme customization drawer.
 
 ---
 
@@ -9,7 +9,7 @@ The Electron frontend for Script Launcher. Provides a native macOS app with an e
 Two things the TUI and Wails GUI couldn't do:
 
 1. **Embedded terminal.** Interactive scripts (`manage_vault`, `lecture_merge`) run inside the app window via xterm.js + node-pty, instead of spawning an external Terminal.
-2. **Self-contained document pipeline.** Document conversions run through a bundled Python venv with pymupdf, pikepdf, and Pillow — no Homebrew dependencies for `pdf → text`, `pptx → pdf`, or `images → pdf`.
+2. **Self-contained document pipeline.** Document operations run through a bundled Python venv with pymupdf, pikepdf, and Pillow — no Homebrew dependencies for `pdf_to_txt`, `pptx_to_pdf`, or `images_to_pdf`.
 
 ---
 
@@ -33,9 +33,9 @@ Two things the TUI and Wails GUI couldn't do:
 - **Node.js** 18+
 - **npm** 9+
 - **ffmpeg** static binary in `resources/bin/` — see Setup below
-- **Microsoft PowerPoint** — required for PPTX → PDF and PPTX → Text
+- **Microsoft PowerPoint** — required for `pptx_to_pdf` and `pptx_to_txt`
 
-> External dependencies for document scripts (poppler, ghostscript) have been removed. All document conversion now runs through bundled Python.
+> External dependencies for document scripts (poppler, ghostscript) have been removed. All document operations run through bundled Python.
 
 ---
 
@@ -95,7 +95,7 @@ electron-app/
 │   ├── main.ts                  # Electron main process — IPC, PTY, spawn
 │   ├── preload.ts               # Context bridge
 │   ├── renderer.tsx
-│   ├── App.jsx                  # UI — sidebar, args, terminal tab
+│   ├── App.jsx                  # UI — sidebar, args, terminal tab, theme drawer
 │   ├── App.css
 │   └── Terminal.jsx             # xterm.js panel
 ├── resources/
@@ -104,7 +104,7 @@ electron-app/
 │   └── python/
 │       ├── venv/                # Bundled interpreter + libraries
 │       └── scripts/
-│           └── docpipe.py       # Unified conversion pipeline
+│           └── docpipe.py       # Unified operation pipeline
 ├── registry.json
 ├── index.html
 ├── forge.config.ts
@@ -121,6 +121,7 @@ electron-app/
 │  Renderer (React)                           │
 │  App.jsx — sidebar, widgets, run/clear      │
 │  Terminal.jsx — xterm.js                    │
+│  ThemePanel — drawer + presets              │
 │  window.electronAPI.*                       │
 └────────────────┬────────────────────────────┘
                  │ contextBridge (preload.ts)
@@ -129,12 +130,13 @@ electron-app/
 │  main.ts — IPC handlers                     │
 │  node-pty — PTY management                  │
 │  Runtime dispatch: 'python' or native       │
+│  Operation name forwarded as first arg      │
 │  resources/bin — PATH-prepended             │
 └────────────────┬────────────────────────────┘
                  │ spawn
 ┌────────────────▼────────────────────────────┐
 │  docpipe.py (Python venv)                   │
-│  Stage graph, BFS routing                   │
+│  OPERATIONS registry + PIPELINES            │
 │  pymupdf  — text extraction, PDF assembly   │
 │  pikepdf  — PDF object graph, image streams │
 │  Pillow   — pixel manipulation              │
@@ -151,8 +153,36 @@ electron-app/
 
 - **Scripts** — sidebar + detail panel with widgets, file pickers, run buttons
 - **Terminal** — full xterm.js terminal with live shell, always mounted
+- **⚙** — opens the theme drawer (see below)
 
 Interactive scripts (e.g. `manage_vault`, `lecture_merge`) auto-switch to the Terminal tab.
+
+---
+
+## Theme
+
+Click the **⚙** icon in the tab bar to open a slide-out drawer for live theme editing.
+
+### Presets
+
+| Preset | Vibe |
+|---|---|
+| **UNC Night** (default) | Carolina Blue + Tokyo Night |
+| **Dracula** | Purple-on-charcoal with hot-pink + cyan accents |
+| **Nord** | Cool blue-grey palette |
+
+Clicking a preset applies all 14 variables at once and persists to `localStorage`.
+
+### Per-variable editing
+
+14 CSS variables across three groups (Backgrounds, Accents, Text). Each row has:
+- Native color picker (instant preview)
+- Hex text input (paste-friendly)
+- ↺ Reset button (returns that variable to its `App.css` default)
+
+### Persistence
+
+Overrides are written to `localStorage["theme-overrides"]` as a `{varName: hex}` map and reapplied on app startup before first paint. "Reset all" clears the entire override map.
 
 ---
 
@@ -167,28 +197,86 @@ Exposed to the renderer via `window.electronAPI`:
 | `PickFile(extensions?)` | Native file picker with optional extension filter |
 | `PickFolder()` | Native folder picker |
 | `PtyShell()` | Spawns default shell in the embedded terminal |
-| `PtyCreate(scriptPath)` | Spawns a script in the embedded terminal PTY |
+| `PtyCreate(scriptPath, args?)` | Spawns a script in the embedded terminal PTY; args are shell-quoted and appended to the command line |
 | `PtyInput(data)` | Sends keystrokes to the active PTY |
 | `PtyResize(cols, rows)` | Resizes the active PTY |
 | `PtyKill()` | Kills the active PTY |
 | `onPtyOutput(cb)` | Receives PTY output stream |
 | `onPtyExit(cb)` | Notified when PTY process exits |
+| `offPtyOutput()` | Removes all `pty-output` listeners |
+| `offPtyExit()` | Removes all `pty-exit` listeners |
 
 ---
 
 ## docpipe.py
 
-Single Python entry point for all document conversions. Stage graph + BFS routing means new conversion edges are mechanical to add.
+Single Python entry point for all document operations. Operations are named, registered in `OPERATIONS`, and chained via explicit `PIPELINES`.
 
-### Stage graph
+### Operations registry
 
+Each operation declares:
+
+- A unique `name` (e.g. `pdf_to_txt`, `images_to_pdf`)
+- Source and destination formats
+- Input arity (`one` or `many`)
+- Output arity (`one` or `many`)
+- A list of options (each with choices + default)
+
+Adding a new operation = one function + one registry entry. The CLI auto-discovers everything: flags, help text, `--list`, `--introspect`.
+
+### Built-in operations
+
+| Operation | Arity | Notes |
+|---|---|---|
+| `pdf_to_txt` | 1→1 | Options: `--pdf_to_txt-layout` (`layout` / `plain`) |
+| `images_to_pdf` | N→1 | Options: `--images_to_pdf-page_size` (`auto` / `letter` / `a4`). `--out` required. |
+| `pptx_to_pdf` | 1→1 | Options: `--pptx_to_pdf-compress` (`none` / `small` / `medium` / `large`). macOS + PowerPoint. |
+
+### Named pipelines
+
+Pipelines compose operations explicitly:
+
+```python
+PIPELINES = {
+  "pptx_to_txt": ["pptx_to_pdf", "pdf_to_txt"],
+}
 ```
-pdf ───→ txt
-images → pdf
-pptx ──→ pdf
-```
 
-Chained paths are auto-routed. `pptx → txt` resolves to `pptx → pdf → txt` with no additional stage code.
+Calling `docpipe pptx_to_txt deck.pptx` runs both operations in order; the intermediate `.pdf` is kept (default) or discarded (`--no-keep-intermediate`).
+
+### CLI
+
+```bash
+# Single operation
+docpipe.py pdf_to_txt input.pdf
+
+# Batch (1→1 operation looped over N inputs)
+docpipe.py pdf_to_txt a.pdf b.pdf c.pdf
+
+# Operation options
+docpipe.py pdf_to_txt input.pdf --pdf_to_txt-layout plain
+docpipe.py pptx_to_pdf deck.pptx --pptx_to_pdf-compress medium
+
+# Named pipeline (defined in PIPELINES)
+docpipe.py pptx_to_txt deck.pptx
+
+# Explicit chain (anonymous pipeline)
+docpipe.py --chain pptx_to_pdf,pdf_to_txt deck.pptx
+
+# Output redirection
+docpipe.py pdf_to_txt --out output.txt input.pdf       # single
+docpipe.py pdf_to_txt --out-dir ~/out a.pdf b.pdf      # batch
+
+# Multi-input (N→1)
+docpipe.py images_to_pdf img1.png img2.png --out combined.pdf
+docpipe.py images_to_pdf ~/scans/ --out scans.pdf
+
+# Diagnostics
+docpipe.py --list           # human-readable operations + pipelines
+docpipe.py --introspect     # JSON: operations + extensions + options + pipelines
+docpipe.py --dry-run ...    # show resolved chain, don't execute
+docpipe.py --echo ...       # print received argv as JSON (pre-argparse)
+```
 
 ### Conventions
 
@@ -199,45 +287,17 @@ Chained paths are auto-routed. `pptx → txt` resolves to `pptx → pdf → txt`
 - **Conflict resolution**: `_1`, `_2`, ... suffix unless `--force`.
 - **Intermediates**: kept by default (`--keep-intermediate`); `--no-keep-intermediate` drops them.
 
-### CLI
+### Per-operation option flags
 
-```bash
-# Single conversion
-docpipe.py --from pdf --to txt input.pdf
+Option flags are namespaced as `--{op_name}-{option_name}`. Examples:
 
-# Batch
-docpipe.py --from pdf --to txt a.pdf b.pdf c.pdf
+- `--pdf_to_txt-layout`
+- `--images_to_pdf-page_size`
+- `--pptx_to_pdf-compress`
 
-# Stage options
-docpipe.py --from pdf --to txt --pdf-layout plain input.pdf
-docpipe.py --from pptx --to pdf --pptx-compress medium deck.pptx
+This guarantees no collisions when a pipeline includes two operations that happen to share an option name.
 
-# Chained
-docpipe.py --from pptx --to txt deck.pptx
-
-# Output redirection
-docpipe.py --from pdf --to txt --out output.txt input.pdf       # single
-docpipe.py --from pdf --to txt --out-dir ~/out a.pdf b.pdf      # batch
-
-# Multi-input (N → 1)
-docpipe.py --from images --to pdf img1.png img2.png --out combined.pdf
-docpipe.py --from images --to pdf ~/scans/ --out scans.pdf
-
-# Diagnostics
-docpipe.py --introspect       # JSON: graph + extensions + per-stage options
-docpipe.py --dry-run ...      # Show the resolved chain, don't execute
-docpipe.py --echo ...         # Print received argv as JSON (pre-argparse)
-```
-
-### Stages
-
-| Stage | Options | Notes |
-|---|---|---|
-| `pdf → txt` | `--pdf-layout` (`layout` / `plain`) | Layout mode uses block-binning + x-padding to preserve columns |
-| `images → pdf` | `--images-page-size` (`auto` / `letter` / `a4`) | N inputs → 1 PDF; `--out` required |
-| `pptx → pdf` | `--pptx-compress` (`none` / `small` / `medium` / `large`) | AppleScript + PowerPoint; pikepdf-based image downsampling |
-
-### Compression presets (`pptx → pdf`)
+### Compression presets (`pptx_to_pdf`)
 
 | Preset | DPI | Ghostscript equivalent | Typical reduction |
 |---|---|---|---|
@@ -262,6 +322,7 @@ Edit `registry.json` and restart `npm start`.
   "description": "Short description",
   "path": "python/scripts/docpipe.py",
   "runtime": "python",
+  "operation": "pdf_to_txt",
   "help": "Detail screen text.",
   "interactive": false,
   "argDefs": [
@@ -269,6 +330,18 @@ Edit `registry.json` and restart `npm start`.
   ]
 }
 ```
+
+### How `runtime: "python"` + `operation` works
+
+When the renderer runs a Python entry, `main.ts` builds the command line as:
+
+```
+<bundledPython> <docpipePath> <operation> <...argDefs flags + values>
+```
+
+The `operation` field is forwarded as the first positional arg to `docpipe.py`. The renderer never has to know which operation it's invoking — that's a property of the registry entry.
+
+For named pipelines, set `operation` to the pipeline name (e.g. `"operation": "pptx_to_txt"`).
 
 ### Widget types
 
@@ -286,8 +359,9 @@ The renderer dispatches on `def.type`. Falls back to existing dropdown/text beha
 
 | Field | Type | Purpose |
 |---|---|---|
+| `operation` | string | Top-level: operation or pipeline name passed to docpipe.py |
 | `label` | string | Visible label above the widget |
-| `flag` | string | CLI flag (e.g. `--pdf-layout`); value appended after |
+| `flag` | string | CLI flag (e.g. `--pdf_to_txt-layout`); value appended after |
 | `default` | string / number / boolean | Default value |
 | `options` | string[] | Dropdown choices |
 | `filePicker` | bool | Show file picker button |
@@ -302,13 +376,12 @@ The renderer dispatches on `def.type`. Falls back to existing dropdown/text beha
 | `placeholder` | string | Input placeholder text |
 | `tooltip` | string | Hover tooltip on `?` icon next to label |
 
-### Hidden flag pattern
+### Hidden boolean flag pattern
 
-To bake `--from`/`--to` into a registry entry without showing them in the UI:
+For `store_true`-style flags (e.g. `--echo`, `--force`, `--dry-run`), set `"default": true` (boolean, not string) and `"hidden": true`. The renderer emits the flag alone with no value:
 
 ```json
-{ "flag": "--from", "default": "pptx", "hidden": true },
-{ "flag": "--to",   "default": "txt",  "hidden": true },
+{ "flag": "--echo", "default": true, "hidden": true }
 ```
 
 ### Test entries
@@ -326,7 +399,7 @@ The `Developer` group exposes one entry per widget type, each calling `docpipe.p
 | pymupdf | `resources/python/venv/lib/` | Text extraction, PDF assembly |
 | pikepdf | `resources/python/venv/lib/` | PDF object graph, image streams |
 | Pillow | `resources/python/venv/lib/` | Pixel manipulation |
-| docpipe.py | `resources/python/scripts/` | Unified conversion pipeline |
+| docpipe.py | `resources/python/scripts/` | Unified operation pipeline |
 
 The app prepends `resources/bin/` to `PATH` at startup — bundled tools are always found before system-installed versions.
 
@@ -334,13 +407,16 @@ The app prepends `resources/bin/` to `PATH` at startup — bundled tools are alw
 
 ## Backlog
 
-- [ ] Group hiding (`"hidden": true` at group level) — hide Developer group from production view
-- [ ] Builder UI — drop a file, surface suggested conversion chains from the introspection graph
-- [ ] Lite build — ephemeral dependency downloads with consent dialog + cleanup
-- [ ] Full build — all binaries bundled, single distributable
-- [ ] Two build targets: `npm run make:lite` and `npm run make:full`
-- [ ] Theme customization panel (CSS variable editor, persisted to localStorage)
+- [ ] PDF Merge operation (N→1, pikepdf concat)
+- [ ] PDF Split operation (1→N, by pages / ranges / bookmarks)
+- [ ] PDF Metadata Strip operation
+- [ ] PDF Bookmarks operation (heading-detect + manual list modes)
+- [ ] Video Silence Trim operation (ffmpeg silencedetect + select/aselect)
+- [ ] Wikilink Graph Export — standalone `vault_graph.py`
+- [ ] Builder UI — drop a file, suggest operations + pipelines from introspection
+- [ ] Lite / Full / AI build targets (`npm run make:lite|full|ai`)
+- [ ] AI bundle: local whisper.cpp for audio/video transcription
 - [ ] OS-aware architecture (`platform()` checks, config file for user paths)
-- [ ] `txt → md` stage (deferred — low priority)
-- [ ] `pdf → md` stage (deferred — low priority, would use `pymupdf4llm`)
+- [ ] `txt_to_md` operation (deferred — low priority)
+- [ ] `pdf_to_md` operation (deferred — would use `pymupdf4llm`)
 - [ ] Auto-update via Electron Forge publisher

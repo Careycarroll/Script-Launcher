@@ -10,7 +10,7 @@ A multi-interface script launcher for macOS — three frontends, two registries.
 |---|---|---|
 | **TUI** | Go + Bubble Tea | Terminal sessions, SSH, lightweight |
 | **GUI** | Go + Wails + React | Native-feeling app, file pickers, quick access |
-| **Electron** | Electron + React + xterm.js | Embedded terminal, bundled Python pipeline |
+| **Electron** | Electron + React + xterm.js | Embedded terminal, bundled Python pipeline, live theme drawer |
 
 TUI and GUI share `registry/registry.go` and call out to local scripts in `~/bin`. Electron has its own `registry.json` and bundles a Python venv for document processing — fully self-contained, no Homebrew dependencies for the document scripts.
 
@@ -42,7 +42,7 @@ Script-Launcher/
 │   │   └── python/
 │   │       ├── venv/          # Python 3.13.5 + pymupdf + pikepdf + Pillow
 │   │       └── scripts/
-│   │           └── docpipe.py # Unified conversion pipeline
+│   │           └── docpipe.py # Unified operation pipeline
 │   ├── registry.json
 │   └── package.json
 ├── go.mod
@@ -55,7 +55,7 @@ Script-Launcher/
 
 ### All Frontends
 - **ffmpeg** — `brew install ffmpeg` (Lecture Merge) — bundled in Electron full build
-- **Microsoft PowerPoint** — required for PPTX-related conversions
+- **Microsoft PowerPoint** — required for PPTX-related operations
 
 ### TUI + GUI
 - **pdftotext** — `brew install poppler` (PDF → Text)
@@ -117,7 +117,7 @@ cd electron-app && npm start    # Development
 cd electron-app && npm run make # Package as .app
 ```
 
-See [`electron-app/README.md`](electron-app/README.md) for setup, architecture, and the `docpipe.py` conversion pipeline.
+See [`electron-app/README.md`](electron-app/README.md) for setup, architecture, the `docpipe.py` operation pipeline, and the theme customization drawer.
 
 ---
 
@@ -140,21 +140,16 @@ See [`electron-app/README.md`](electron-app/README.md) for setup, architecture, 
 
 ### Documents
 
-TUI and GUI use local Homebrew tools (pdftotext, ghostscript). Electron runs everything through bundled `docpipe.py` — a single Python entry point with a stage-graph architecture.
+TUI and GUI use local Homebrew tools (pdftotext, ghostscript). Electron runs everything through bundled `docpipe.py` — a single Python entry point with an operations-based architecture.
 
-| Script | Description |
-|---|---|
-| **PDF → Text** | Extract text from PDFs with column/table layout reconstruction |
-| **Images → PDF** | Combine images into a single PDF (per-image or fixed page size) |
-| **PPTX → PDF** | Convert PowerPoint to PDF with image downsampling presets |
-| **PPTX → Text** | Chained PPTX → PDF → Text in one step (Electron only) |
+| Script | Operation / Pipeline | Description |
+|---|---|---|
+| **PDF → Text** | `pdf_to_txt` | Extract text from PDFs with column/table layout reconstruction |
+| **Images → PDF** | `images_to_pdf` | Combine images into a single PDF (per-image or fixed page size) |
+| **PPTX → PDF** | `pptx_to_pdf` | Convert PowerPoint to PDF with image downsampling presets |
+| **PPTX → Text** | `pptx_to_txt` (pipeline) | Chained `pptx_to_pdf → pdf_to_txt` in one step |
 
-Conversion graph in `docpipe.py`:
-- `pdf → txt`
-- `images → pdf`
-- `pptx → pdf`
-
-Chained paths are auto-routed via BFS — `pptx → txt` resolves to `pptx → pdf → txt` with no extra stage code.
+Each operation declares format + arity. Pipelines are explicit named sequences in `docpipe.py`. New operations slot in by registering a function in `OPERATIONS` — the CLI, introspection JSON, and registry plumbing pick them up automatically.
 
 ---
 
@@ -185,11 +180,12 @@ Edit `electron-app/registry.json`. Full widget reference in [`electron-app/READM
   "description": "Short description",
   "path": "python/scripts/docpipe.py",
   "runtime": "python",
+  "operation": "pdf_to_txt",
   "help": "Detail screen text.",
   "interactive": false,
   "argDefs": [
     { "label": "Input file", "filePicker": true, "extensions": ["pdf"] },
-    { "label": "Mode", "default": "fast", "options": ["fast", "slow"] }
+    { "label": "Layout", "flag": "--pdf_to_txt-layout", "default": "layout", "options": ["layout","plain"] }
   ]
 }
 ```
@@ -198,13 +194,14 @@ Edit `electron-app/registry.json`. Full widget reference in [`electron-app/READM
 
 | Field | Purpose |
 |---|---|
+| `operation` | Top-level field for Python entries: operation or pipeline name |
 | `filePicker` | Opens a file picker dialog |
 | `dirPicker` | Opens a folder picker dialog |
 | `setWorkDir` | Sets selected path as the script's working directory (TUI/GUI) |
 | `multiFile` | Enables a file/folder queue (multiple inputs) |
 | `batchArgs` | Passes all queued files as args in one script call |
 | `options` | Renders a dropdown / left-right selector |
-| `flag` | Prepends a flag before the value (e.g. `-c ebook`) |
+| `flag` | Prepends a flag before the value (e.g. `--pdf_to_txt-layout`) |
 | `interactive` | Launches script in embedded terminal (Electron) or Terminal window (TUI/GUI) |
 | `extensions` | Restricts file picker to listed extensions (Electron) |
 | `hidden` | Don't render in UI; flag/value still passed (Electron) |
@@ -214,11 +211,13 @@ Edit `electron-app/registry.json`. Full widget reference in [`electron-app/READM
 | `invertFlag` | For checkboxes: pass flag only when UNchecked (for `--no-*` flags) |
 | `tooltip` | Hover tooltip rendered as `?` icon on the label (Electron) |
 
+For `store_true`-style hidden flags (e.g. `--echo`), use `"default": true` (boolean) and `"hidden": true`. The renderer will emit the flag alone with no value.
+
 ---
 
 ## Palette
 
-UNC Carolina Blue `#4B9CD3` and Navy `#13294B` paired with Tokyo Night.
+UNC Carolina Blue `#4B9CD3` and Navy `#13294B` paired with Tokyo Night. The Electron frontend ships a live theme drawer (⚙ icon) with per-variable editing and three built-in presets (UNC Night, Dracula, Nord).
 
 | Token | Hex | Usage |
 |---|---|---|
@@ -233,14 +232,14 @@ UNC Carolina Blue `#4B9CD3` and Navy `#13294B` paired with Tokyo Night.
 
 ## Backlog
 
-- [ ] Electron — group hiding (`"hidden": true` at the registry group level) for Developer test group
-- [ ] Electron — builder UI: drop a file, see suggested conversion chains from the introspection graph
-- [ ] Electron — Lite build with ephemeral dependency downloads + consent dialog
-- [ ] Electron — Full build with all binaries bundled
-- [ ] Electron — two build targets: `npm run make:lite` and `npm run make:full`
-- [ ] Electron — theme customization panel (CSS variable editor)
+- [ ] Electron — PDF Merge / Split / Metadata Strip / Bookmarks operations
+- [ ] Electron — Video Silence Trim operation
+- [ ] Electron — Wikilink Graph Export (standalone `vault_graph.py`)
+- [ ] Electron — Builder UI: drop a file, see suggested operations + pipelines from introspection
+- [ ] Electron — Lite / Full / AI build targets
+- [ ] Electron — AI bundle (whisper.cpp for audio/video transcription)
 - [ ] Electron — OS-aware architecture (`platform()` checks, config file for user paths)
-- [ ] Electron — `txt → md` stage (deferred — low priority)
-- [ ] Electron — `pdf → md` stage (deferred — low priority, would use `pymupdf4llm`)
-- [ ] qpdf — bookmark creation script
+- [ ] Electron — `txt_to_md` operation (deferred — low priority)
+- [ ] Electron — `pdf_to_md` operation (deferred — would use `pymupdf4llm`)
+- [ ] qpdf — bookmark creation script (TUI/GUI)
 - [ ] manage_vault — restore key hints below menu options

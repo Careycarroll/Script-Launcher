@@ -84,7 +84,8 @@ ipcMain.handle('run-script', (_event, groupIdx: number, scriptIdx: number, args:
     let cmdArgs: string[];
     if (script.runtime === 'python') {
       cmd = bundledPython;
-      cmdArgs = [path.join(bundledResources, script.path), ...allArgs];
+      const opArg = script.operation ? [script.operation] : [];
+      cmdArgs = [path.join(bundledResources, script.path), ...opArg, ...allArgs];
     } else {
       cmd = script.path;
       cmdArgs = allArgs;

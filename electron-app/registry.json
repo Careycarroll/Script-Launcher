@@ -45,16 +45,6 @@
         "interactive": false,
         "argDefs": [
           {
-            "flag": "--from",
-            "default": "pdf",
-            "hidden": true
-          },
-          {
-            "flag": "--to",
-            "default": "txt",
-            "hidden": true
-          },
-          {
             "label": "PDF files",
             "filePicker": true,
             "multiFile": true,
@@ -64,14 +54,15 @@
           },
           {
             "label": "Layout",
-            "flag": "--pdf-layout",
+            "flag": "--pdf_to_txt-layout",
             "default": "layout",
             "options": [
               "layout",
               "plain"
             ]
           }
-        ]
+        ],
+        "operation": "pdf_to_txt"
       },
       {
         "name": "Images \u2192 PDF",
@@ -81,16 +72,6 @@
         "help": "Combines PNG, JPG, JPEG, TIFF, or BMP images into a single PDF in the order queued. Add files individually or pick a folder to include all images in it (sorted alphabetically). Output goes to the folder of the first image.",
         "interactive": false,
         "argDefs": [
-          {
-            "flag": "--from",
-            "default": "images",
-            "hidden": true
-          },
-          {
-            "flag": "--to",
-            "default": "pdf",
-            "hidden": true
-          },
           {
             "label": "Images (files or folder)",
             "filePicker": true,
@@ -112,7 +93,7 @@
           },
           {
             "label": "Page size",
-            "flag": "--images-page-size",
+            "flag": "--images_to_pdf-page_size",
             "default": "auto",
             "options": [
               "auto",
@@ -120,7 +101,8 @@
               "a4"
             ]
           }
-        ]
+        ],
+        "operation": "images_to_pdf"
       },
       {
         "name": "PPTX \u2192 PDF",
@@ -131,16 +113,6 @@
         "interactive": false,
         "argDefs": [
           {
-            "flag": "--from",
-            "default": "pptx",
-            "hidden": true
-          },
-          {
-            "flag": "--to",
-            "default": "pdf",
-            "hidden": true
-          },
-          {
             "label": "PPTX files (files or folder)",
             "filePicker": true,
             "dirPicker": true,
@@ -151,7 +123,7 @@
           },
           {
             "label": "Image quality",
-            "flag": "--pptx-compress",
+            "flag": "--pptx_to_pdf-compress",
             "default": "medium",
             "options": [
               "none",
@@ -160,7 +132,8 @@
               "large"
             ]
           }
-        ]
+        ],
+        "operation": "pptx_to_pdf"
       },
       {
         "name": "PPTX \u2192 Text",
@@ -171,16 +144,6 @@
         "interactive": false,
         "argDefs": [
           {
-            "flag": "--from",
-            "default": "pptx",
-            "hidden": true
-          },
-          {
-            "flag": "--to",
-            "default": "txt",
-            "hidden": true
-          },
-          {
             "label": "PPTX files (files or folder)",
             "filePicker": true,
             "dirPicker": true,
@@ -191,7 +154,7 @@
           },
           {
             "label": "Image quality",
-            "flag": "--pptx-compress",
+            "flag": "--pptx_to_pdf-compress",
             "default": "medium",
             "options": [
               "none",
@@ -203,7 +166,7 @@
           },
           {
             "label": "Text layout",
-            "flag": "--pdf-layout",
+            "flag": "--pdf_to_txt-layout",
             "default": "layout",
             "options": [
               "layout",
@@ -227,7 +190,8 @@
             "checkboxLabel": "Keep the PDF produced during conversion",
             "tooltip": "Checked (default) keeps the intermediate .pdf alongside the .txt. Unchecked discards it after the .txt is produced."
           }
-        ]
+        ],
+        "operation": "pptx_to_txt"
       }
     ]
   },
