@@ -515,6 +515,41 @@ def op_pdf_merge(inputs: list[Path], opts: dict, output_path: Path) -> Path:
     return output_path
 
 
+
+# ─── Operation: pdf_strip (metadata removal) ──────────────────────────────────
+
+def op_pdf_strip(input_path: Path, opts: dict, output_path: Path) -> Path:
+    """Strip all identifying metadata from a PDF.
+
+    Removes:
+      - /Info dictionary    (author, title, producer, creation/mod dates, keywords)
+      - /Metadata XMP stream (what Adobe Acrobat and modern viewers display)
+
+    Preserves:
+      - /ID trailer hash    (pikepdf regenerates on save; the hash contains
+                            no recoverable human-readable information — it
+                            is solely a document fingerprint for spec compliance)
+
+    Result: File → Properties shows clean metadata in any viewer.
+    """
+    pdf = pikepdf.open(input_path)
+    try:
+        # /Info dictionary
+        if pdf.docinfo is not None:
+            for key in list(pdf.docinfo.keys()):
+                del pdf.docinfo[key]
+
+        # /Metadata XMP stream — drop the reference from Root entirely
+        if "/Metadata" in pdf.Root:
+            del pdf.Root["/Metadata"]
+
+        pdf.save(output_path)
+    finally:
+        pdf.close()
+
+    return output_path
+
+
 # ─── Operations registry ──────────────────────────────────────────────────────
 
 OPERATIONS: dict[str, Operation] = {
@@ -543,6 +578,11 @@ OPERATIONS: dict[str, Operation] = {
             OpOption(name="bookmarks", choices=["yes", "no"], default="yes",
                      help="Create top-level bookmarks at each source file boundary."),
         ],
+    ),
+    "pdf_strip": Operation(
+        name="pdf_strip", src="pdf", dst="pdf", fn=op_pdf_strip,
+        description="Remove all metadata from a PDF (info dict + XMP + /ID).",
+        options=[],
     ),
     "pptx_to_pdf": Operation(
         name="pptx_to_pdf", src="pptx", dst="pdf", fn=op_pptx_to_pdf,

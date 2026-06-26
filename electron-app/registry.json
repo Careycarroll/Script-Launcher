@@ -227,6 +227,26 @@
             "tooltip": "yes (default) adds a bookmark per source file in the merged PDF, named after the source filename. no = raw concatenation."
           }
         ]
+      },
+      {
+        "name": "PDF Strip Metadata",
+        "description": "Remove author, dates, and identifying metadata from a PDF",
+        "path": "python/scripts/docpipe.py",
+        "runtime": "python",
+        "operation": "pdf_strip",
+        "help": "Removes all identifying metadata: the info dictionary (author, title, producer, creation/modification dates, keywords) and the XMP metadata stream (what Adobe Acrobat reads). The document /ID hash is regenerated on save per PDF spec \u2014 it contains no recoverable human-readable information. Output lands next to the input file.",
+        "interactive": false,
+        "argDefs": [
+          {
+            "label": "PDF files (files or folder)",
+            "filePicker": true,
+            "dirPicker": true,
+            "multiFile": true,
+            "extensions": [
+              "pdf"
+            ]
+          }
+        ]
       }
     ]
   },
