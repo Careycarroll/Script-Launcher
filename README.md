@@ -1,5 +1,8 @@
 # ⚡ Script Launcher
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+
 A multi-interface script launcher for macOS — three frontends, two registries. Add a script once in `registry/registry.go` (TUI + GUI) or `electron-app/registry.json` (Electron) and it appears in that frontend.
 
 ---
