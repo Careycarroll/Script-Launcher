@@ -746,6 +746,198 @@ def op_pdf_bookmark_analyze(input_path: Path, opts: dict, output_path: Path) -> 
     return output_path
 
 
+
+# ─── Operation: pdf_split ─────────────────────────────────────────────────────
+
+def _sanitize_filename(title: str, max_len: int = 60) -> str:
+    """Replace filesystem-hostile chars, collapse whitespace, cap length."""
+    import re as _re
+    cleaned = _re.sub(r'[/\\:*?"<>|]', "_", title)
+    cleaned = _re.sub(r"\s+", "_", cleaned).strip("_")
+    if len(cleaned) > max_len:
+        cleaned = cleaned[:max_len].rstrip("_")
+    return cleaned or "untitled"
+
+
+def _parse_page_ranges(spec: str, page_count: int) -> list[tuple[int, int]]:
+    """Parse '1-12, 13-24, 25-end' or '25-' into [(start, end), ...] 1-indexed inclusive."""
+    if not spec.strip():
+        raise ValueError("Page range spec is empty.")
+    ranges: list[tuple[int, int]] = []
+    for chunk in spec.split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        if "-" not in chunk:
+            # single page
+            try:
+                p = int(chunk)
+            except ValueError:
+                raise ValueError(f"Invalid page spec: {chunk!r}")
+            if not 1 <= p <= page_count:
+                raise ValueError(f"Page {p} out of range (PDF has {page_count} pages)")
+            ranges.append((p, p))
+            continue
+        a, b = chunk.split("-", 1)
+        a = a.strip()
+        b = b.strip()
+        try:
+            start = int(a) if a else 1
+        except ValueError:
+            raise ValueError(f"Invalid start page: {a!r}")
+        if not b or b.lower() == "end":
+            end = page_count
+        else:
+            try:
+                end = int(b)
+            except ValueError:
+                raise ValueError(f"Invalid end page: {b!r}")
+        if start < 1 or end > page_count or start > end:
+            raise ValueError(
+                f"Range {start}-{end} invalid (PDF has {page_count} pages)"
+            )
+        ranges.append((start, end))
+    if not ranges:
+        raise ValueError("No valid ranges parsed.")
+    return ranges
+
+
+def _split_audit(
+    audit_path: Path,
+    source_name: str,
+    mode: str,
+    page_count: int,
+    chunks: list[tuple[int, int, Path]],
+    extra_notes: list[str] | None = None,
+) -> None:
+    """Write the split audit trail."""
+    lines = [
+        f"# Split audit for: {source_name}",
+        f"# Mode: {mode}",
+        f"# Source pages: 1-{page_count}",
+        f"# Produced: {len(chunks)} files",
+        "",
+    ]
+    if extra_notes:
+        for note in extra_notes:
+            lines.append(f"# {note}")
+        lines.append("")
+    for i, (start, end, out_path) in enumerate(chunks, 1):
+        if start == end:
+            page_label = f"page {start}"
+        else:
+            page_label = f"pages {start}-{end}"
+        lines.append(f"{i:02d}. {page_label:20s} →  {out_path.name}")
+    audit_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def op_pdf_split(input_path: Path, opts: dict, output_path: Path) -> list[Path]:
+    """Split a PDF into multiple files by mode.
+
+    Modes:
+      range    — split at user-specified page ranges (e.g. "1-12, 13-24, 25-end")
+      every    — split into uniform chunks of N pages
+      bookmark — split at each top-level bookmark boundary
+
+    output_path is the resolved output directory + stem base (runner-managed).
+    Returns list of produced file paths.
+    """
+    mode = opts.get("mode", "range")
+    out_dir = output_path.parent
+    stem = input_path.stem
+
+    doc = pymupdf.open(input_path)
+    try:
+        page_count = doc.page_count
+
+        # Resolve chunks: list of (start_1idx, end_1idx, suffix_label)
+        chunks: list[tuple[int, int, str]] = []
+        extra_notes: list[str] = []
+
+        if mode == "range":
+            spec = opts.get("ranges", "")
+            ranges = _parse_page_ranges(spec, page_count)
+            for start, end in ranges:
+                label = f"p{start}-{end}"
+                chunks.append((start, end, label))
+
+        elif mode == "every":
+            n_str = opts.get("every", "10")
+            try:
+                n = int(n_str)
+            except ValueError:
+                raise ValueError(f"--pdf_split-every must be an integer, got {n_str!r}")
+            if n < 1:
+                raise ValueError("Pages-per-chunk must be ≥ 1")
+            start = 1
+            while start <= page_count:
+                end = min(start + n - 1, page_count)
+                label = f"p{start}-{end}"
+                chunks.append((start, end, label))
+                start = end + 1
+
+        elif mode == "bookmark":
+            toc = doc.get_toc(simple=True)  # [[level, title, page_1idx], ...]
+            # Only top-level bookmarks for split boundaries
+            top_level = [(title, page) for level, title, page in toc if level == 1]
+            if not top_level:
+                raise RuntimeError(
+                    f"{input_path.name} has no top-level bookmarks. "
+                    "Use Range or Every-N mode, or run PDF Bookmarks first."
+                )
+            # Build chunks: each bookmark starts a chunk; chunk ends at next bookmark - 1
+            first_bm_page = top_level[0][1]
+            if first_bm_page > 1:
+                # Pre-bookmark content becomes chunk 00
+                label = f"00_Front_Matter"
+                chunks.append((1, first_bm_page - 1, label))
+                extra_notes.append(
+                    f"Pages 1-{first_bm_page - 1} preceded first bookmark; "
+                    f"saved as Front_Matter."
+                )
+            for i, (title, start) in enumerate(top_level):
+                if i + 1 < len(top_level):
+                    end = top_level[i + 1][1] - 1
+                else:
+                    end = page_count
+                clean = _sanitize_filename(title, max_len=60)
+                # Numeric prefix preserves order
+                idx = i + 1 if first_bm_page == 1 else i + 2
+                label = f"{idx:02d}_{clean}"
+                chunks.append((start, end, label))
+
+        else:
+            raise ValueError(f"Unknown split mode: {mode!r}")
+
+        # Write each chunk
+        produced: list[tuple[int, int, Path]] = []
+        for start, end, suffix in chunks:
+            out_path = out_dir / f"{stem}_{suffix}.pdf"
+            chunk_doc = pymupdf.open()
+            try:
+                # pymupdf insert_pdf uses 0-indexed inclusive
+                chunk_doc.insert_pdf(doc, from_page=start - 1, to_page=end - 1)
+                chunk_doc.save(out_path, garbage=4, deflate=True)
+            finally:
+                chunk_doc.close()
+            produced.append((start, end, out_path))
+
+        # Audit trail
+        audit_path = out_dir / f"{stem}_split.txt"
+        _split_audit(
+            audit_path, input_path.name, mode, page_count, produced, extra_notes
+        )
+
+        print(
+            f"   ✓ {len(produced)} files produced, audit at {audit_path.name}",
+            file=sys.stderr,
+        )
+    finally:
+        doc.close()
+
+    return [p[2] for p in produced]
+
+
 # ─── Operations registry ──────────────────────────────────────────────────────
 
 OPERATIONS: dict[str, Operation] = {
@@ -791,6 +983,19 @@ OPERATIONS: dict[str, Operation] = {
         output_suffix="_bookmarked",
     ),
 
+    "pdf_split": Operation(
+        name="pdf_split", src="pdf", dst="pdf", fn=op_pdf_split,
+        output_arity="many",
+        description="Split a PDF by range, every N pages, or at bookmarks.",
+        options=[
+            OpOption(name="mode", choices=["range", "every", "bookmark"], default="bookmark",
+                     help="range: explicit page ranges. every: N pages per chunk. bookmark: split at top-level bookmarks."),
+            OpOption(name="ranges", choices=[], default="",
+                     help="For range mode: comma-separated, e.g. '1-12, 13-24, 25-end'."),
+            OpOption(name="every", choices=[], default="10",
+                     help="For every mode: pages per chunk."),
+        ],
+    ),
     "pdf_strip": Operation(
         name="pdf_strip", src="pdf", dst="pdf", fn=op_pdf_strip,
         description="Remove all metadata from a PDF (info dict + XMP + /ID).",
@@ -912,8 +1117,14 @@ def _run_chain_single(
             t0 = time.time()
             produced = op.fn(current, op_opts[op.name], target)
             elapsed = time.time() - t0
-            print(f"   ✅ {produced.name}  ({elapsed:.1f}s)", file=sys.stderr)
-            current = produced
+            if isinstance(produced, list):
+                print(f"   ✅ {len(produced)} files produced  ({elapsed:.1f}s)", file=sys.stderr)
+                if is_last:
+                    return produced
+                current = produced[0] if produced else current
+            else:
+                print(f"   ✅ {produced.name}  ({elapsed:.1f}s)", file=sys.stderr)
+                current = produced
         return current
     else:
         with tempfile.TemporaryDirectory(prefix="docpipe_") as td:
@@ -932,8 +1143,14 @@ def _run_chain_single(
                 t0 = time.time()
                 produced = op.fn(current, op_opts[op.name], target)
                 elapsed = time.time() - t0
-                print(f"   ✅ {produced.name}  ({elapsed:.1f}s)", file=sys.stderr)
-                current = produced
+                if isinstance(produced, list):
+                    print(f"   ✅ {len(produced)} files produced  ({elapsed:.1f}s)", file=sys.stderr)
+                    if is_last:
+                        return produced
+                    current = produced[0] if produced else current
+                else:
+                    print(f"   ✅ {produced.name}  ({elapsed:.1f}s)", file=sys.stderr)
+                    current = produced
             return current
 
 
@@ -1175,7 +1392,10 @@ def main(argv: list[str] | None = None) -> int:
                     effective_out,
                     args.keep_intermediate, args.force,
                 )
-                final_outputs.append(final)
+                if isinstance(final, list):
+                    final_outputs.extend(final)
+                else:
+                    final_outputs.append(final)
             except Exception as e:
                 print(f"❌ {inp.name}: {e}", file=sys.stderr)
                 failures.append((inp, e))

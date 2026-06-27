@@ -151,6 +151,7 @@ TUI and GUI use local Homebrew tools (pdftotext, ghostscript). Electron runs eve
 | **PDF Merge** | `pdf_merge` | Concatenate PDFs with optional per-file bookmarks |
 | **PDF Strip Metadata** | `pdf_strip` | Remove info dict + XMP for clean sharing |
 | **PDF Bookmarks** | `pdf_bookmark_analyze` + `pdf_bookmark_add` | Two-stage detect/edit/apply for navigating large PDFs |
+| **PDF Split** | `pdf_split` | Split by range, every N pages, or at bookmarks (with audit trail) |
 
 Each operation declares format + arity. Pipelines are explicit named sequences in `docpipe.py`. New operations slot in by registering a function in `OPERATIONS` — the CLI, introspection JSON, and registry plumbing pick them up automatically.
 

@@ -287,6 +287,58 @@
             "label": "PDF Bookmarks"
           }
         ]
+      },
+      {
+        "name": "PDF Split",
+        "description": "Split a PDF into multiple files by range, every N pages, or by bookmark",
+        "path": "python/scripts/docpipe.py",
+        "runtime": "python",
+        "operation": "pdf_split",
+        "help": "Split modes:\n\u2022 Bookmark \u2014 each top-level bookmark becomes its own file (named after the bookmark title). Front matter before the first bookmark goes to '_00_Front_Matter.pdf'.\n\u2022 Range \u2014 explicit page ranges, e.g. '1-12, 13-24, 25-end'. Overlaps allowed.\n\u2022 Every N \u2014 uniform chunks of N pages each.\n\nOutput filenames include page ranges (range/every) or bookmark titles (bookmark mode). An audit file '<stem>_split.txt' lists every chunk produced. Output lands next to the source PDF; use Output folder to redirect.",
+        "interactive": false,
+        "argDefs": [
+          {
+            "label": "PDF file",
+            "filePicker": true,
+            "extensions": [
+              "pdf"
+            ]
+          },
+          {
+            "label": "Mode",
+            "flag": "--pdf_split-mode",
+            "default": "bookmark",
+            "options": [
+              "bookmark",
+              "range",
+              "every"
+            ],
+            "tooltip": "bookmark = split at each top-level bookmark. range = explicit page ranges. every = uniform N-page chunks."
+          },
+          {
+            "label": "Page ranges (range mode)",
+            "flag": "--pdf_split-ranges",
+            "default": "",
+            "placeholder": "1-12, 13-24, 25-end",
+            "tooltip": "Comma-separated. Use 'end' or leave empty after dash for last page. Overlaps and gaps allowed."
+          },
+          {
+            "label": "Pages per chunk (every mode)",
+            "flag": "--pdf_split-every",
+            "default": "10",
+            "type": "number",
+            "min": 1,
+            "max": 1000,
+            "tooltip": "How many pages each output file should contain. Last chunk may be smaller."
+          },
+          {
+            "label": "Output folder",
+            "type": "outputDir",
+            "flag": "--out-dir",
+            "placeholder": "Same as input folder",
+            "tooltip": "Where to save the split files + audit. Defaults to the source PDF's folder."
+          }
+        ]
       }
     ]
   },

@@ -172,6 +172,12 @@ body {
 .args-section {
   padding: 20px 28px;
   overflow-y: auto;
+  flex-shrink: 1;
+  min-height: 0;
+}
+
+.detail:has(.output-panel) .args-section {
+  max-height: 50%;
 }
 
 .arg-group {
@@ -278,7 +284,7 @@ body {
 
 /* ── Output Panel ──────────────────────────────────────────────────────────── */
 .output-panel {
-  margin: 0 28px 0;
+  margin: 12px 28px 0;
   background: var(--bg-input);
   border: 1px solid rgba(122, 162, 247, 0.15);
   border-radius: 8px;
@@ -287,10 +293,14 @@ body {
   font-size: 12px;
   color: var(--tokyo-green);
   line-height: 1.6;
-  flex: 1;
+  flex: 2 1 auto;
+  min-height: 200px;
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 .output-panel.error {

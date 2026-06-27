@@ -246,6 +246,7 @@ Adding a new operation = one function + one registry entry. The CLI auto-discove
 | `pdf_strip` | 1→1 | Strip info dict + XMP metadata. Output: `<stem>_stripped.pdf`. |
 | `pdf_bookmark_analyze` | 1→stdout | Detect outlines or font-signature titles. Emits JSON for UI consumption. |
 | `pdf_bookmark_add` | 1→1 | Write bookmarks from a `page:title` list. Output: `<stem>_bookmarked.pdf`. |
+| `pdf_split` | 1→N | Split by page range, every N pages, or at top-level bookmarks. Writes audit `<stem>_split.txt`. |
 
 ### Named pipelines
 
