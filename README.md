@@ -236,14 +236,8 @@ UNC Carolina Blue `#4B9CD3` and Navy `#13294B` paired with Tokyo Night. The Elec
 
 ## Backlog
 
-- [ ] Electron — PDF Merge / Split / Metadata Strip / Bookmarks operations
-- [ ] Electron — Video Silence Trim operation
-- [ ] Electron — Wikilink Graph Export (standalone `vault_graph.py`)
-- [ ] Electron — Builder UI: drop a file, see suggested operations + pipelines from introspection
-- [ ] Electron — Lite / Full / AI build targets
-- [ ] Electron — AI bundle (whisper.cpp for audio/video transcription)
-- [ ] Electron — OS-aware architecture (`platform()` checks, config file for user paths)
-- [ ] Electron — `txt_to_md` operation (deferred — low priority)
-- [ ] Electron — `pdf_to_md` operation (deferred — would use `pymupdf4llm`)
-- [ ] qpdf — bookmark creation script (TUI/GUI)
-- [ ] manage_vault — restore key hints below menu options
+Active work and proposed features live in [GitHub Issues](https://github.com/Careycarroll/Script-Launcher/issues).
+
+Current focus:
+- **v0.5 — Vault Workbench** — launchpad restructure + vault analysis tile
+- **v0.6 — Video Silence Trim** — ffmpeg-based silence detection operation

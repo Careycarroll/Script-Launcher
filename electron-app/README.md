@@ -15,16 +15,16 @@ Two things the TUI and Wails GUI couldn't do:
 
 ## Stack
 
-| Layer | Technology |
-|---|---|
-| UI | React + App.jsx / App.css |
-| Terminal embedding | xterm.js + node-pty |
-| Script execution | Node.js `child_process` / `spawn` |
-| Registry | `registry.json` |
-| Build / Package | Electron Forge + Vite |
-| Bundled Python runtime | Python 3.13.5 standalone |
-| Python libraries | pymupdf, pikepdf, Pillow |
-| Bundled binary | ffmpeg (static, darwin-arm64) |
+| Layer                  | Technology                        |
+| ---------------------- | --------------------------------- |
+| UI                     | React + App.jsx / App.css         |
+| Terminal embedding     | xterm.js + node-pty               |
+| Script execution       | Node.js `child_process` / `spawn` |
+| Registry               | `registry.json`                   |
+| Build / Package        | Electron Forge + Vite             |
+| Bundled Python runtime | Python 3.13.5 standalone          |
+| Python libraries       | pymupdf, pikepdf, Pillow          |
+| Bundled binary         | ffmpeg (static, darwin-arm64)     |
 
 ---
 
@@ -72,6 +72,7 @@ uv pip install pymupdf pikepdf pillow \
 ## Running
 
 ### Development
+
 ```bash
 npm start
 ```
@@ -79,6 +80,7 @@ npm start
 Hot reload is enabled for `App.jsx`, `App.css`, and `renderer.tsx`. Changes to `main.ts` or `preload.ts` require a restart.
 
 ### Production Build
+
 ```bash
 npm run make
 ```
@@ -176,17 +178,18 @@ Click the **⚙** icon in the tab bar to open a slide-out drawer for live theme 
 
 ### Presets
 
-| Preset | Vibe |
-|---|---|
-| **UNC Night** (default) | Carolina Blue + Tokyo Night |
-| **Dracula** | Purple-on-charcoal with hot-pink + cyan accents |
-| **Nord** | Cool blue-grey palette |
+| Preset                  | Vibe                                            |
+| ----------------------- | ----------------------------------------------- |
+| **UNC Night** (default) | Carolina Blue + Tokyo Night                     |
+| **Dracula**             | Purple-on-charcoal with hot-pink + cyan accents |
+| **Nord**                | Cool blue-grey palette                          |
 
 Clicking a preset applies all 14 variables at once and persists to `localStorage`.
 
 ### Per-variable editing
 
 14 CSS variables across three groups (Backgrounds, Accents, Text). Each row has:
+
 - Native color picker (instant preview)
 - Hex text input (paste-friendly)
 - ↺ Reset button (returns that variable to its `App.css` default)
@@ -201,21 +204,21 @@ Overrides are written to `localStorage["theme-overrides"]` as a `{varName: hex}`
 
 Exposed to the renderer via `window.electronAPI`:
 
-| Method | Description |
-|---|---|
-| `GetGroups()` | Returns all script groups from registry.json |
-| `RunScript(groupIdx, scriptIdx, args)` | Executes a script, returns `{ output, error }` |
-| `PickFile(extensions?)` | Native file picker with optional extension filter |
-| `PickFolder()` | Native folder picker |
-| `PtyShell()` | Spawns default shell in the embedded terminal |
-| `PtyCreate(scriptPath, args?)` | Spawns a script in the embedded terminal PTY; args are shell-quoted and appended to the command line |
-| `PtyInput(data)` | Sends keystrokes to the active PTY |
-| `PtyResize(cols, rows)` | Resizes the active PTY |
-| `PtyKill()` | Kills the active PTY |
-| `onPtyOutput(cb)` | Receives PTY output stream |
-| `onPtyExit(cb)` | Notified when PTY process exits |
-| `offPtyOutput()` | Removes all `pty-output` listeners |
-| `offPtyExit()` | Removes all `pty-exit` listeners |
+| Method                                 | Description                                                                                          |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `GetGroups()`                          | Returns all script groups from registry.json                                                         |
+| `RunScript(groupIdx, scriptIdx, args)` | Executes a script, returns `{ output, error }`                                                       |
+| `PickFile(extensions?)`                | Native file picker with optional extension filter                                                    |
+| `PickFolder()`                         | Native folder picker                                                                                 |
+| `PtyShell()`                           | Spawns default shell in the embedded terminal                                                        |
+| `PtyCreate(scriptPath, args?)`         | Spawns a script in the embedded terminal PTY; args are shell-quoted and appended to the command line |
+| `PtyInput(data)`                       | Sends keystrokes to the active PTY                                                                   |
+| `PtyResize(cols, rows)`                | Resizes the active PTY                                                                               |
+| `PtyKill()`                            | Kills the active PTY                                                                                 |
+| `onPtyOutput(cb)`                      | Receives PTY output stream                                                                           |
+| `onPtyExit(cb)`                        | Notified when PTY process exits                                                                      |
+| `offPtyOutput()`                       | Removes all `pty-output` listeners                                                                   |
+| `offPtyExit()`                         | Removes all `pty-exit` listeners                                                                     |
 
 ---
 
@@ -237,16 +240,16 @@ Adding a new operation = one function + one registry entry. The CLI auto-discove
 
 ### Built-in operations
 
-| Operation | Arity | Notes |
-|---|---|---|
-| `pdf_to_txt` | 1→1 | Options: `--pdf_to_txt-layout` (`layout` / `plain`) |
-| `images_to_pdf` | N→1 | Options: `--images_to_pdf-page_size` (`auto` / `letter` / `a4`). `--out` required. |
-| `pptx_to_pdf` | 1→1 | Options: `--pptx_to_pdf-compress` (`none` / `small` / `medium` / `large`). macOS + PowerPoint. |
-| `pdf_merge` | N→1 | Concatenate PDFs with optional per-file bookmarks. Preserves first file's metadata. |
-| `pdf_strip` | 1→1 | Strip info dict + XMP metadata. Output: `<stem>_stripped.pdf`. |
-| `pdf_bookmark_analyze` | 1→stdout | Detect outlines or font-signature titles. Emits JSON for UI consumption. |
-| `pdf_bookmark_add` | 1→1 | Write bookmarks from a `page:title` list. Output: `<stem>_bookmarked.pdf`. |
-| `pdf_split` | 1→N | Split by page range, every N pages, or at top-level bookmarks. Writes audit `<stem>_split.txt`. |
+| Operation              | Arity    | Notes                                                                                           |
+| ---------------------- | -------- | ----------------------------------------------------------------------------------------------- |
+| `pdf_to_txt`           | 1→1      | Options: `--pdf_to_txt-layout` (`layout` / `plain`)                                             |
+| `images_to_pdf`        | N→1      | Options: `--images_to_pdf-page_size` (`auto` / `letter` / `a4`). `--out` required.              |
+| `pptx_to_pdf`          | 1→1      | Options: `--pptx_to_pdf-compress` (`none` / `small` / `medium` / `large`). macOS + PowerPoint.  |
+| `pdf_merge`            | N→1      | Concatenate PDFs with optional per-file bookmarks. Preserves first file's metadata.             |
+| `pdf_strip`            | 1→1      | Strip info dict + XMP metadata. Output: `<stem>_stripped.pdf`.                                  |
+| `pdf_bookmark_analyze` | 1→stdout | Detect outlines or font-signature titles. Emits JSON for UI consumption.                        |
+| `pdf_bookmark_add`     | 1→1      | Write bookmarks from a `page:title` list. Output: `<stem>_bookmarked.pdf`.                      |
+| `pdf_split`            | 1→N      | Split by page range, every N pages, or at top-level bookmarks. Writes audit `<stem>_split.txt`. |
 
 ### Named pipelines
 
@@ -315,12 +318,12 @@ This guarantees no collisions when a pipeline includes two operations that happe
 
 ### Compression presets (`pptx_to_pdf`)
 
-| Preset | DPI | Ghostscript equivalent | Typical reduction |
-|---|---|---|---|
-| `none` | — | — | PowerPoint raw export |
-| `small` | 72 | `/screen` | ~65–70% smaller |
-| `medium` | 150 (default) | `/ebook` | ~40% smaller |
-| `large` | 300 | `/printer` | ~5–10% smaller |
+| Preset   | DPI           | Ghostscript equivalent | Typical reduction     |
+| -------- | ------------- | ---------------------- | --------------------- |
+| `none`   | —             | —                      | PowerPoint raw export |
+| `small`  | 72            | `/screen`              | ~65–70% smaller       |
+| `medium` | 150 (default) | `/ebook`               | ~40% smaller          |
+| `large`  | 300           | `/printer`             | ~5–10% smaller        |
 
 Algorithm: walk every embedded image with pikepdf, compute effective DPI from CTM-derived display rect, downsample image+SMask in lockstep, re-encode (DCT for image, Flate for mask). Preserves alpha, dedupes by xref. No Ghostscript dependency.
 
@@ -363,34 +366,34 @@ For named pipelines, set `operation` to the pipeline name (e.g. `"operation": "p
 
 The renderer dispatches on `def.type`. Falls back to existing dropdown/text behavior when `type` is absent.
 
-| `type` | UI | Notes |
-|---|---|---|
-| _(omitted)_ + `options` | Dropdown | Existing behavior |
-| _(omitted)_ + no options | Text input | Existing behavior |
-| `checkbox` | Checkbox row with `checkboxLabel` text | Pairs with `invertFlag` for `--no-*` flags |
-| `number` | Numeric input | Supports `min`, `max`, `step`. Empty input omits the flag. |
-| `outputDir` | Text input + folder picker | Maps to `--out-dir` typically |
+| `type`                   | UI                                     | Notes                                                      |
+| ------------------------ | -------------------------------------- | ---------------------------------------------------------- |
+| _(omitted)_ + `options`  | Dropdown                               | Existing behavior                                          |
+| _(omitted)_ + no options | Text input                             | Existing behavior                                          |
+| `checkbox`               | Checkbox row with `checkboxLabel` text | Pairs with `invertFlag` for `--no-*` flags                 |
+| `number`                 | Numeric input                          | Supports `min`, `max`, `step`. Empty input omits the flag. |
+| `outputDir`              | Text input + folder picker             | Maps to `--out-dir` typically                              |
 
 ### Schema reference
 
-| Field | Type | Purpose |
-|---|---|---|
-| `operation` | string | Top-level: operation or pipeline name passed to docpipe.py |
-| `label` | string | Visible label above the widget |
-| `flag` | string | CLI flag (e.g. `--pdf_to_txt-layout`); value appended after |
-| `default` | string / number / boolean | Default value |
-| `options` | string[] | Dropdown choices |
-| `filePicker` | bool | Show file picker button |
-| `dirPicker` | bool | Show folder picker button |
-| `multiFile` | bool | Render as queue, multi-input mode |
-| `extensions` | string[] | Restrict pickers to these extensions |
-| `hidden` | bool | Don't render but pass flag/value at runtime |
-| `type` | string | Widget dispatch (see above) |
-| `invertFlag` | bool | Checkbox: pass flag only when UNchecked |
-| `min` / `max` / `step` | number | Number widget constraints |
-| `checkboxLabel` | string | Text next to checkbox |
-| `placeholder` | string | Input placeholder text |
-| `tooltip` | string | Hover tooltip on `?` icon next to label |
+| Field                  | Type                      | Purpose                                                     |
+| ---------------------- | ------------------------- | ----------------------------------------------------------- |
+| `operation`            | string                    | Top-level: operation or pipeline name passed to docpipe.py  |
+| `label`                | string                    | Visible label above the widget                              |
+| `flag`                 | string                    | CLI flag (e.g. `--pdf_to_txt-layout`); value appended after |
+| `default`              | string / number / boolean | Default value                                               |
+| `options`              | string[]                  | Dropdown choices                                            |
+| `filePicker`           | bool                      | Show file picker button                                     |
+| `dirPicker`            | bool                      | Show folder picker button                                   |
+| `multiFile`            | bool                      | Render as queue, multi-input mode                           |
+| `extensions`           | string[]                  | Restrict pickers to these extensions                        |
+| `hidden`               | bool                      | Don't render but pass flag/value at runtime                 |
+| `type`                 | string                    | Widget dispatch (see above)                                 |
+| `invertFlag`           | bool                      | Checkbox: pass flag only when UNchecked                     |
+| `min` / `max` / `step` | number                    | Number widget constraints                                   |
+| `checkboxLabel`        | string                    | Text next to checkbox                                       |
+| `placeholder`          | string                    | Input placeholder text                                      |
+| `tooltip`              | string                    | Hover tooltip on `?` icon next to label                     |
 
 ### Hidden boolean flag pattern
 
@@ -408,14 +411,14 @@ The `Developer` group exposes one entry per widget type, each calling `docpipe.p
 
 ## Bundled Resources
 
-| Resource | Path | Purpose |
-|---|---|---|
-| ffmpeg | `resources/bin/ffmpeg` | Video processing (Lecture Merge) |
-| Python 3.13.5 | `resources/python/venv/` | Document scripts |
-| pymupdf | `resources/python/venv/lib/` | Text extraction, PDF assembly |
-| pikepdf | `resources/python/venv/lib/` | PDF object graph, image streams |
-| Pillow | `resources/python/venv/lib/` | Pixel manipulation |
-| docpipe.py | `resources/python/scripts/` | Unified operation pipeline |
+| Resource      | Path                         | Purpose                          |
+| ------------- | ---------------------------- | -------------------------------- |
+| ffmpeg        | `resources/bin/ffmpeg`       | Video processing (Lecture Merge) |
+| Python 3.13.5 | `resources/python/venv/`     | Document scripts                 |
+| pymupdf       | `resources/python/venv/lib/` | Text extraction, PDF assembly    |
+| pikepdf       | `resources/python/venv/lib/` | PDF object graph, image streams  |
+| Pillow        | `resources/python/venv/lib/` | Pixel manipulation               |
+| docpipe.py    | `resources/python/scripts/`  | Unified operation pipeline       |
 
 The app prepends `resources/bin/` to `PATH` at startup — bundled tools are always found before system-installed versions.
 
@@ -423,16 +426,9 @@ The app prepends `resources/bin/` to `PATH` at startup — bundled tools are alw
 
 ## Backlog
 
-- [ ] PDF Merge operation (N→1, pikepdf concat)
-- [ ] PDF Split operation (1→N, by pages / ranges / bookmarks)
-- [ ] PDF Metadata Strip operation
-- [ ] PDF Bookmarks operation (heading-detect + manual list modes)
-- [ ] Video Silence Trim operation (ffmpeg silencedetect + select/aselect)
-- [ ] Wikilink Graph Export — standalone `vault_graph.py`
-- [ ] Builder UI — drop a file, suggest operations + pipelines from introspection
-- [ ] Lite / Full / AI build targets (`npm run make:lite|full|ai`)
-- [ ] AI bundle: local whisper.cpp for audio/video transcription
-- [ ] OS-aware architecture (`platform()` checks, config file for user paths)
-- [ ] `txt_to_md` operation (deferred — low priority)
-- [ ] `pdf_to_md` operation (deferred — would use `pymupdf4llm`)
-- [ ] Auto-update via Electron Forge publisher
+Active work and proposed features live in [GitHub Issues](https://github.com/Careycarroll/Script-Launcher/issues).
+
+Current focus:
+
+- **v0.5 — Vault Workbench** — launchpad restructure + vault analysis tile
+- **v0.6 — Video Silence Trim** — ffmpeg-based silence detection operation
