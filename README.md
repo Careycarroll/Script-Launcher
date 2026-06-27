@@ -148,6 +148,9 @@ TUI and GUI use local Homebrew tools (pdftotext, ghostscript). Electron runs eve
 | **Images → PDF** | `images_to_pdf` | Combine images into a single PDF (per-image or fixed page size) |
 | **PPTX → PDF** | `pptx_to_pdf` | Convert PowerPoint to PDF with image downsampling presets |
 | **PPTX → Text** | `pptx_to_txt` (pipeline) | Chained `pptx_to_pdf → pdf_to_txt` in one step |
+| **PDF Merge** | `pdf_merge` | Concatenate PDFs with optional per-file bookmarks |
+| **PDF Strip Metadata** | `pdf_strip` | Remove info dict + XMP for clean sharing |
+| **PDF Bookmarks** | `pdf_bookmark_analyze` + `pdf_bookmark_add` | Two-stage detect/edit/apply for navigating large PDFs |
 
 Each operation declares format + arity. Pipelines are explicit named sequences in `docpipe.py`. New operations slot in by registering a function in `OPERATIONS` — the CLI, introspection JSON, and registry plumbing pick them up automatically.
 

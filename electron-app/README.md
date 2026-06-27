@@ -157,6 +157,17 @@ electron-app/
 
 Interactive scripts (e.g. `manage_vault`, `lecture_merge`) auto-switch to the Terminal tab.
 
+## PDF Bookmarks
+
+The **Documents → PDF Bookmarks** entry uses a two-stage in-app editor:
+
+1. Pick a PDF and click **Analyze**
+2. The detector runs `pdf_bookmark_analyze`, which tries embedded `/Outlines` first, then falls back to font-signature detection
+3. Proposed bookmarks populate a textarea with a comment header showing the detection source
+4. Edit the list (comments stripped on save), then click **Apply** to write `<stem>_bookmarked.pdf` + audit-trail `<stem>_bookmarks.txt`
+
+The file picker collapses post-analysis so the textarea fills the panel. Use **← Change PDF** in the toolbar to restart with a different file.
+
 ---
 
 ## Theme
@@ -210,7 +221,7 @@ Exposed to the renderer via `window.electronAPI`:
 
 ## docpipe.py
 
-Single Python entry point for all document operations. Operations are named, registered in `OPERATIONS`, and chained via explicit `PIPELINES`.
+Single Python entry point for all document operations. Operations are named, registered in `OPERATIONS`, and chained via explicit `PIPELINES`. Same-format operations (e.g. `pdf_merge`, `pdf_strip`, `pdf_bookmark_add`) declare an `output_suffix` for stable naming (`_merged.pdf`, `_stripped.pdf`, `_bookmarked.pdf`) — re-running overwrites instead of incrementing.
 
 ### Operations registry
 
@@ -231,6 +242,10 @@ Adding a new operation = one function + one registry entry. The CLI auto-discove
 | `pdf_to_txt` | 1→1 | Options: `--pdf_to_txt-layout` (`layout` / `plain`) |
 | `images_to_pdf` | N→1 | Options: `--images_to_pdf-page_size` (`auto` / `letter` / `a4`). `--out` required. |
 | `pptx_to_pdf` | 1→1 | Options: `--pptx_to_pdf-compress` (`none` / `small` / `medium` / `large`). macOS + PowerPoint. |
+| `pdf_merge` | N→1 | Concatenate PDFs with optional per-file bookmarks. Preserves first file's metadata. |
+| `pdf_strip` | 1→1 | Strip info dict + XMP metadata. Output: `<stem>_stripped.pdf`. |
+| `pdf_bookmark_analyze` | 1→stdout | Detect outlines or font-signature titles. Emits JSON for UI consumption. |
+| `pdf_bookmark_add` | 1→1 | Write bookmarks from a `page:title` list. Output: `<stem>_bookmarked.pdf`. |
 
 ### Named pipelines
 
