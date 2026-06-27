@@ -474,10 +474,22 @@ function App() {
               )}
 
               {/* Standard args — rendered using original index to keep args[] aligned.
-                  Widget chosen by def.type, falling back to options/text. */}
+                  Widget chosen by def.type, falling back to options/text.
+                  showWhen: {field, value} hides this widget unless the named
+                  arg's current value matches. Lets a dropdown control which
+                  related widgets are visible. */}
               {script.argDefs?.map((def, i) => {
                 if (def.multiFile) return null;
                 if (def.hidden) return null;
+                if (def.showWhen) {
+                  const targetIdx = script.argDefs.findIndex(
+                    d => d.label === def.showWhen.field
+                  );
+                  if (targetIdx >= 0) {
+                    const targetVal = args[targetIdx] ?? script.argDefs[targetIdx].default;
+                    if (targetVal !== def.showWhen.value) return null;
+                  }
+                }
 
                 const label = (
                   <div className="arg-label">
