@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('run-script', groupIdx, scriptIdx, args),
   PickFile: (extensions?: string[]) => ipcRenderer.invoke('pick-file', extensions),
   PickFolder: () => ipcRenderer.invoke('pick-folder'),
+  AnalyzeBookmarks: (pdfPath: string) => ipcRenderer.invoke('analyze-bookmarks', pdfPath),
 
   // ── PTY / Terminal ────────────────────────────────────────────────────────
   PtyShell: () => ipcRenderer.invoke('pty-shell'),

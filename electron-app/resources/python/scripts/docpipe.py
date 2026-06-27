@@ -89,6 +89,7 @@ FORMAT_EXTENSIONS: dict[str, set[str]] = {
     "images": {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"},
     "pptx":   {".pptx"},
     "docx":   {".docx"},
+    "json":   {".json"},
 }
 
 
@@ -607,29 +608,141 @@ def op_pdf_bookmark_add(input_path: Path, opts: dict, output_path: Path) -> Path
     return output_path
 
 
-# ─── Operation: pdf_bookmark_extract ──────────────────────────────────────────
+# ─── Operation: pdf_bookmark_analyze ─────────────────────────────────────────
 
-def op_pdf_bookmark_extract(input_path: Path, opts: dict, output_path: Path) -> Path:
-    """Extract bookmarks from a PDF to a plain-text 'page:title' list."""
+def _detect_title_font(doc, sample_pages: int = 30):
+    """Find dominant title font signature: (size_pt, is_bold) or None."""
+    from collections import Counter
+    n_pages = min(sample_pages, doc.page_count)
+    largest_per_page = []
+
+    for i in range(n_pages):
+        page = doc[i]
+        try:
+            blocks = page.get_text("dict")["blocks"]
+        except Exception:
+            continue
+        candidates = []
+        for block in blocks:
+            if "lines" not in block:
+                continue
+            for line in block["lines"]:
+                for span in line["spans"]:
+                    text = span["text"].strip()
+                    if len(text) < 3:
+                        continue
+                    size = round(span["size"], 1)
+                    is_bold = bool(span["flags"] & 16)
+                    candidates.append((size, is_bold, text))
+        if not candidates:
+            continue
+        candidates.sort(key=lambda c: (-c[0], not c[1]))
+        size, is_bold, _ = candidates[0]
+        largest_per_page.append((size, is_bold))
+
+    if not largest_per_page:
+        return None
+
+    counts = Counter(largest_per_page)
+    threshold = max(1, int(0.4 * len(largest_per_page)))
+    candidates = [(size, bold, n) for (size, bold), n in counts.items() if n >= threshold]
+    if not candidates:
+        (size, bold), _ = counts.most_common(1)[0]
+        return (size, bold)
+    candidates.sort(key=lambda c: (-c[0], not c[1]))
+    size, bold, _ = candidates[0]
+    return (size, bold)
+
+
+def _clean_title(text: str) -> str:
+    """Normalize a detected title."""
+    import re as _re
+    text = " ".join(text.split())
+    text = _re.sub(r"^(Chapter|Slide|Section|Part)\s+\d+[:.\s]*", "", text, flags=_re.I)
+    text = _re.sub(r"^\d+[:.\s]+", "", text)
+    return text.strip()
+
+
+def op_pdf_bookmark_analyze(input_path: Path, opts: dict, output_path: Path) -> Path:
+    """Analyze a PDF and propose bookmarks.
+
+    Strategy order:
+      1. If PDF has embedded /Outlines, use those
+      2. Else try font-signature detection on slide-deck-style content
+      3. Else return empty proposal with explanation
+
+    Output: JSON to stdout (output_path is unused but required by runner).
+      {
+        "source": "outlines" | "fonts" | "none",
+        "entries": [[page_1indexed, title], ...],
+        "info": "human-readable note for UI display"
+      }
+    """
     doc = pymupdf.open(input_path)
+    result = {"source": "none", "entries": [], "info": ""}
+
     try:
-        toc = doc.get_toc(simple=True)  # [[level, title, page], ...]
+        # Strategy 1: embedded outlines
+        toc = doc.get_toc(simple=True)
+        if toc:
+            entries = [[page, title] for level, title, page in toc]
+            result["source"] = "outlines"
+            result["entries"] = entries
+            result["info"] = f"Embedded outlines ({len(entries)} entries)"
+        else:
+            # Strategy 2: font detection
+            title_font = _detect_title_font(doc)
+            if title_font is None:
+                result["info"] = (
+                    "No embedded outlines and no consistent title font detected. "
+                    "Type bookmarks manually below as 'page:title' per line."
+                )
+            else:
+                target_size, target_bold = title_font
+                entries = []
+                for i in range(doc.page_count):
+                    page = doc[i]
+                    try:
+                        blocks = page.get_text("dict")["blocks"]
+                    except Exception:
+                        continue
+                    title_parts = []
+                    for block in blocks:
+                        if "lines" not in block:
+                            continue
+                        for line in block["lines"]:
+                            for span in line["spans"]:
+                                size = round(span["size"], 1)
+                                is_bold = bool(span["flags"] & 16)
+                                if abs(size - target_size) < 0.5 and is_bold == target_bold:
+                                    text = span["text"].strip()
+                                    if text and len(text) >= 2:
+                                        title_parts.append(text)
+                    if not title_parts:
+                        continue
+                    title = _clean_title(" ".join(title_parts))
+                    if not title or len(title) < 3:
+                        continue
+                    entries.append([i + 1, title])
+
+                if entries:
+                    result["source"] = "fonts"
+                    result["entries"] = entries
+                    weight = "bold" if target_bold else "regular"
+                    result["info"] = (
+                        f"Font detection ({target_size}pt {weight}, "
+                        f"{len(entries)} entries). Review and edit before applying."
+                    )
+                else:
+                    result["info"] = (
+                        f"Font signature detected ({target_size}pt) but no titles "
+                        "extracted. Type bookmarks manually below."
+                    )
     finally:
         doc.close()
 
-    if not toc:
-        output_path.write_text(
-            "# No bookmarks found in this PDF.\n",
-            encoding="utf-8",
-        )
-        return output_path
-
-    lines = [f"# Bookmarks extracted from {input_path.name}", ""]
-    for level, title, page in toc:
-        # v1: flatten nested bookmarks (level info preserved as comment for now)
-        indent = "  " * (level - 1) if level > 1 else ""
-        lines.append(f"{indent}{page}:{title}")
-    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # JSON to stdout for UI consumption
+    print(json.dumps(result, ensure_ascii=False))
     return output_path
 
 
@@ -662,6 +775,12 @@ OPERATIONS: dict[str, Operation] = {
                      help="Create top-level bookmarks at each source file boundary."),
         ],
     ),
+    "pdf_bookmark_analyze": Operation(
+        name="pdf_bookmark_analyze", src="pdf", dst="json", fn=op_pdf_bookmark_analyze,
+        description="Analyze a PDF and propose bookmarks (outlines or font detection).",
+        options=[],
+        output_suffix="",
+    ),
     "pdf_bookmark_add": Operation(
         name="pdf_bookmark_add", src="pdf", dst="pdf", fn=op_pdf_bookmark_add,
         description="Add bookmarks to a PDF from a 'page:title' list.",
@@ -671,12 +790,7 @@ OPERATIONS: dict[str, Operation] = {
         ],
         output_suffix="_bookmarked",
     ),
-    "pdf_bookmark_extract": Operation(
-        name="pdf_bookmark_extract", src="pdf", dst="txt", fn=op_pdf_bookmark_extract,
-        description="Extract existing bookmarks to a plain-text 'page:title' list.",
-        options=[],
-        output_suffix="_bookmarks",
-    ),
+
     "pdf_strip": Operation(
         name="pdf_strip", src="pdf", dst="pdf", fn=op_pdf_strip,
         description="Remove all metadata from a PDF (info dict + XMP + /ID).",

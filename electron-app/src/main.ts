@@ -209,3 +209,37 @@ ipcMain.handle('pick-folder', async (event) => {
   const result = await dialog.showOpenDialog(win, { properties: ['openDirectory'] });
   return result.canceled ? '' : result.filePaths[0];
 });
+
+// Analyze PDF for bookmark candidates — runs docpipe.py pdf_bookmark_analyze
+// and parses the JSON output. Returns { source, entries, info } to renderer.
+ipcMain.handle('analyze-bookmarks', (_event, pdfPath: string) => {
+  return new Promise((resolve) => {
+    const docpipePath = path.join(bundledResources, 'python/scripts/docpipe.py');
+    const proc = spawn(bundledPython, [docpipePath, 'pdf_bookmark_analyze', pdfPath], {
+      env: { ...process.env },
+    });
+    let stdout = '';
+    let stderr = '';
+    proc.stdout.on('data', (d: Buffer) => stdout += d.toString());
+    proc.stderr.on('data', (d: Buffer) => stderr += d.toString());
+    proc.on('close', (code: number) => {
+      if (code !== 0) {
+        resolve({ source: 'error', entries: [], info: stderr.trim() || 'Analysis failed.' });
+        return;
+      }
+      // docpipe also prints final output paths on stdout (one per line). The JSON
+      // is on its own line. Find the line that parses as JSON.
+      const lines = stdout.split('\n').filter(l => l.trim());
+      for (const line of lines.reverse()) {
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed.source !== undefined) {
+            resolve(parsed);
+            return;
+          }
+        } catch {}
+      }
+      resolve({ source: 'error', entries: [], info: 'No JSON in analyzer output.' });
+    });
+  });
+});

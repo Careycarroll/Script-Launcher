@@ -275,22 +275,16 @@
         ]
       },
       {
-        "name": "PDF Extract Bookmarks",
-        "description": "Dump existing bookmarks to a text file",
+        "name": "PDF Bookmarks",
+        "description": "Auto-detect, edit, and apply bookmarks to a PDF",
         "path": "python/scripts/docpipe.py",
         "runtime": "python",
-        "operation": "pdf_bookmark_extract",
-        "help": "Reads existing bookmarks from a PDF and writes them as a plain-text list (page:title format). Useful for inspecting structure before splitting, or as a starting point for editing then re-applying via PDF Add Bookmarks. Output saved as <filename>_bookmarks.txt.",
+        "help": "Pick a PDF and click Analyze. If the PDF has embedded outlines, those are loaded. Otherwise, font-signature detection proposes bookmarks based on the dominant title font. Edit the proposed list in the textarea (lines starting with # are comments, ignored on save). Click Apply to write <filename>_bookmarked.pdf alongside the input. Re-running overwrites the previous _bookmarked.pdf.",
         "interactive": false,
         "argDefs": [
           {
-            "label": "PDF files (files or folder)",
-            "filePicker": true,
-            "dirPicker": true,
-            "multiFile": true,
-            "extensions": [
-              "pdf"
-            ]
+            "type": "bookmarkEditor",
+            "label": "PDF Bookmarks"
           }
         ]
       }

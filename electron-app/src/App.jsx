@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-const { GetGroups, RunScript, PickFile, PickFolder, PtyCreate } = window.electronAPI;
+const { GetGroups, RunScript, PickFile, PickFolder, PtyCreate, AnalyzeBookmarks } = window.electronAPI;
 import TerminalPanel from './Terminal';
 import './App.css';
 
@@ -168,6 +168,11 @@ function App() {
   const [output, setOutput]       = useState('');
   const [status, setStatus]       = useState('idle'); // idle | running | success | error
   const [activeTab, setActiveTab]   = useState('scripts'); // scripts | terminal
+  const [bookmarkPdfPath, setBookmarkPdfPath] = useState('');
+  const [bookmarkText, setBookmarkText] = useState('');
+  const [bookmarkInfo, setBookmarkInfo] = useState('');
+  const [bookmarkAnalyzing, setBookmarkAnalyzing] = useState(false);
+  const [bookmarkApplying, setBookmarkApplying] = useState(false);
   const [themeOpen, setThemeOpen]   = useState(false);
 
   useEffect(() => {
@@ -193,6 +198,9 @@ function App() {
   function selectScript(groupIdx, scriptIdx) {
     const s = groups[groupIdx].scripts[scriptIdx];
     setSelected({ groupIdx, scriptIdx });
+    setBookmarkPdfPath('');
+    setBookmarkText('');
+    setBookmarkInfo('');
     // Default-initialize args. Checkboxes (booleans) need explicit string
     // representation so the existing string[] state works unchanged.
     setArgs(s.argDefs ? s.argDefs.map(d => {
@@ -240,6 +248,65 @@ function App() {
       if (next.length === 0) setQueueMode(null);
       return next;
     });
+  }
+
+
+  // ── Bookmark editor handlers ───────────────────────────────────────────────
+  async function pickBookmarkPdf() {
+    const path = await PickFile(['pdf']);
+    if (!path) return;
+    setBookmarkPdfPath(path);
+    setBookmarkText('');
+    setBookmarkInfo('');
+  }
+
+  async function analyzeBookmarks() {
+    if (!bookmarkPdfPath) return;
+    setBookmarkAnalyzing(true);
+    try {
+      const result = await AnalyzeBookmarks(bookmarkPdfPath);
+      const headerLines = [
+        `# ${result.info || 'Analysis complete.'}`,
+        `# Edit below; lines starting with # are ignored on save.`,
+        `# Format: page:title (one per line). Blank lines OK.`,
+        '',
+      ];
+      const entryLines = (result.entries || []).map(([page, title]) => `${page}:${title}`);
+      setBookmarkText([...headerLines, ...entryLines].join('\n'));
+      setBookmarkInfo(result.info || '');
+    } catch (e) {
+      setBookmarkInfo('Analysis failed: ' + (e?.message || e));
+    } finally {
+      setBookmarkAnalyzing(false);
+    }
+  }
+
+  async function applyBookmarks() {
+    if (!bookmarkPdfPath || !bookmarkText.trim()) return;
+    setBookmarkApplying(true);
+    setOutput('');
+    setStatus('running');
+    // Pass file as positional, list as --pdf_bookmark_add-list <value>
+    const args = [bookmarkPdfPath, '--pdf_bookmark_add-list', bookmarkText];
+    // We invoke the underlying pdf_bookmark_add op by spoofing the operation field
+    // through a synthetic script reference. Easiest: find the PDF Add Bookmarks
+    // entry in the registry and call RunScript with it.
+    let addGroupIdx = -1, addScriptIdx = -1;
+    groups.forEach((g, gi) => {
+      g.scripts?.forEach((s, si) => {
+        if (s.operation === 'pdf_bookmark_add') { addGroupIdx = gi; addScriptIdx = si; }
+      });
+    });
+    if (addGroupIdx < 0) {
+      setOutput('Internal error: pdf_bookmark_add entry missing from registry.');
+      setStatus('error');
+      setBookmarkApplying(false);
+      return;
+    }
+    const result = await RunScript(addGroupIdx, addScriptIdx, args);
+    setOutput(result.output || result.error || '(no output)');
+    setStatus(result.error ? 'error' : 'success');
+    setBookmarkApplying(false);
   }
 
   // ── Run ─────────────────────────────────────────────────────────────────────
@@ -305,6 +372,11 @@ function App() {
     setStatus('idle');
     setFileQueue([]);
     setQueueMode(null);
+    setBookmarkPdfPath('');
+    setBookmarkText('');
+    setBookmarkInfo('');
+    setBookmarkAnalyzing(false);
+    setBookmarkApplying(false);
   }
 
   // ── Status label ────────────────────────────────────────────────────────────
@@ -495,6 +567,65 @@ function App() {
                   );
                 }
 
+
+                // Bookmark editor — file picker collapses after analysis,
+                // textarea fills available space for editing the proposed list.
+                if (def.type === 'bookmarkEditor') {
+                  const hasAnalyzed = bookmarkText !== '';
+                  return (
+                    <div key={i} className="bookmark-editor">
+                      {!hasAnalyzed && (
+                        <div className="bookmark-picker">
+                          <div className="arg-label">PDF file</div>
+                          <div className="arg-row">
+                            <input
+                              className="arg-input"
+                              value={bookmarkPdfPath}
+                              placeholder="No file selected"
+                              readOnly
+                            />
+                            <button className="btn-pick" onClick={pickBookmarkPdf}>
+                              Pick PDF
+                            </button>
+                          </div>
+                          <button
+                            className="btn-run"
+                            onClick={analyzeBookmarks}
+                            disabled={!bookmarkPdfPath || bookmarkAnalyzing}
+                            style={{ marginTop: 12 }}
+                          >
+                            {bookmarkAnalyzing ? 'Analyzing…' : 'Analyze'}
+                          </button>
+                          {bookmarkInfo && !bookmarkAnalyzing && (
+                            <div className="bookmark-info">{bookmarkInfo}</div>
+                          )}
+                        </div>
+                      )}
+                      {hasAnalyzed && (
+                        <>
+                          <div className="bookmark-toolbar">
+                            <span className="bookmark-file">
+                              {bookmarkPdfPath.split('/').pop()}
+                            </span>
+                            <button
+                              className="btn-secondary"
+                              onClick={() => { setBookmarkText(''); setBookmarkInfo(''); }}
+                            >
+                              ← Change PDF
+                            </button>
+                          </div>
+                          <textarea
+                            className="arg-input arg-textarea bookmark-textarea"
+                            value={bookmarkText}
+                            onChange={e => setBookmarkText(e.target.value)}
+                            spellCheck={false}
+                          />
+                        </>
+                      )}
+                    </div>
+                  );
+                }
+
                 // Default: dropdown if options, else text input (existing behavior).
                 return (
                   <div key={i} className="arg-group">
@@ -543,13 +674,23 @@ function App() {
 
             {/* Footer */}
             <div className="detail-footer">
-              <button
-                className="btn-run"
-                onClick={runScript}
-                disabled={status === 'running'}
-              >
-                {status === 'running' ? 'Running…' : 'Run Script'}
-              </button>
+              {(script.argDefs || []).some(d => d.type === 'bookmarkEditor') ? (
+                <button
+                  className="btn-run"
+                  onClick={applyBookmarks}
+                  disabled={!bookmarkText.trim() || bookmarkApplying || status === 'running'}
+                >
+                  {bookmarkApplying ? 'Applying…' : 'Apply Bookmarks'}
+                </button>
+              ) : (
+                <button
+                  className="btn-run"
+                  onClick={runScript}
+                  disabled={status === 'running'}
+                >
+                  {status === 'running' ? 'Running…' : 'Run Script'}
+                </button>
+              )}
               <button className="btn-secondary" onClick={clear}>
                 Clear
               </button>
