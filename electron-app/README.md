@@ -30,7 +30,7 @@ Two things the TUI and Wails GUI couldn't do:
 
 ## Requirements
 
-- **Node.js** 18+
+- **Node.js** 22 LTS (use `nvm use` — `.nvmrc` is committed)
 - **npm** 9+
 - **ffmpeg** static binary in `resources/bin/` — see Setup below
 - **Microsoft PowerPoint** — required for `pptx_to_pdf` and `pptx_to_txt`
@@ -43,6 +43,7 @@ Two things the TUI and Wails GUI couldn't do:
 
 ```bash
 cd electron-app
+nvm use      # activates Node 22 from .nvmrc
 npm install
 ```
 
