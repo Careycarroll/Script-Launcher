@@ -1,0 +1,6 @@
+pymupdf
+pikepdf
+pillow
+pytest
+pytest-timeout
+python-pptx
