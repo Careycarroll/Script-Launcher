@@ -410,6 +410,13 @@ The `Developer` group exposes one entry per widget type, each calling `docpipe.p
 
 ---
 
+## Testing
+
+```bash
+cd electron-app
+resources/python/venv/bin/python3 -m pytest tests/
+```
+
 ## Bundled Resources
 
 | Resource      | Path                         | Purpose                          |
