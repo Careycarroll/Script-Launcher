@@ -8,7 +8,8 @@ import pytest
 HERE = Path(__file__).parent
 REPO_ROOT = HERE.parent
 DOCPIPE = REPO_ROOT / "resources" / "python" / "scripts" / "docpipe.py"
-PYTHON = REPO_ROOT / "resources" / "python" / "venv" / "bin" / "python3"
+_bundled = REPO_ROOT / "resources" / "python" / "venv" / "bin" / "python3"
+PYTHON = _bundled if _bundled.exists() else Path(sys.executable)
 FIXTURES = HERE / "fixtures"
 
 
