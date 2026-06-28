@@ -1,0 +1,36 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  pytest:
+    name: pytest on Ubuntu
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pymupdf pikepdf pillow pytest pytest-timeout python-pptx
+
+      - name: Generate test fixtures
+        run: python electron-app/tests/fixtures/generate.py
+
+      - name: Run pytest
+        run: pytest electron-app/tests/ -v
+        env:
+          PYTHONUNBUFFERED: '1'
