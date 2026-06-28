@@ -25,7 +25,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install pymupdf pikepdf pillow pytest pytest-timeout python-pptx
+          pip install -r electron-app/requirements.txt
 
       - name: Generate test fixtures
         run: python electron-app/tests/fixtures/generate.py
