@@ -13,6 +13,10 @@ First tagged release. Captures the state of the project at the point of adopting
 a professional release workflow (tags, changelog, GitHub Releases).
 
 ### Added
+
+- **GitHub Actions CI** — pytest suite runs on every push and PR
+- **CI status badge** in root README
+- Branch protection requires `pytest on Ubuntu` to pass before merging
 - **Operations architecture** for `docpipe.py` — named operations registry with
   format/arity declarations, per-operation namespaced flags, and `--list` /
   `--introspect` diagnostics.
@@ -33,9 +37,11 @@ a professional release workflow (tags, changelog, GitHub Releases).
   namespaced labels).
 
 ### Changed
+
 - Both READMEs replaced inline backlog lists with a link to GitHub Issues.
 
 ### Removed
+
 - External dependency on poppler and ghostscript for the Electron frontend
   (replaced by bundled Python pipeline).
 
