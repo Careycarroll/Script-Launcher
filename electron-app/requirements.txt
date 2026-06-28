@@ -1,6 +1,6 @@
-pymupdf
-pikepdf
-pillow
-pytest
-pytest-timeout
-python-pptx
+pymupdf==1.27.2.3
+pikepdf==10.9.1
+pillow==12.2.0
+pytest==9.1.1
+pytest-timeout==2.4.0
+python-pptx==1.0.2
