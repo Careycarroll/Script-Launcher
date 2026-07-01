@@ -120,6 +120,7 @@ ipcMain.handle('pick-file', async (event, extensions?: string[]) => {
 let activePty: pty.IPty | null = null;
 
 ipcMain.handle('pty-shell', (event) => {
+  console.log('[pty-shell] START');
   const shell = platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/zsh');
   const env = {
     ...process.env,
@@ -128,16 +129,23 @@ ipcMain.handle('pty-shell', (event) => {
   };
 
   if (activePty) {
-    activePty.kill();
+    const stale = activePty;
     activePty = null;
+    stale.kill();
   }
 
-  activePty = pty.spawn(shell, [], {
-    name: 'xterm-256color',
-    cols: 120,
-    rows: 40,
-    env,
-  });
+  try {
+    activePty = pty.spawn(shell, [], {
+      name: 'xterm-256color',
+      cols: 120,
+      rows: 40,
+      env,
+    });
+    console.log('[pty-shell] spawn ok pid=', activePty.pid);
+  } catch (err) {
+    console.error('[pty-shell] SPAWN FAILED:', err);
+    return false;
+  }
 
   const win = BrowserWindow.fromWebContents(event.sender);
 
@@ -145,16 +153,17 @@ ipcMain.handle('pty-shell', (event) => {
     win?.webContents.send('pty-output', data);
   });
 
-  activePty.onExit(() => {
+  const thisPty = activePty;
+  thisPty.onExit(() => {
     win?.webContents.send('pty-exit');
-    activePty = null;
+    if (activePty === thisPty) activePty = null;
   });
 
   return true;
 });
 
 ipcMain.handle('pty-create', (event, scriptPath: string, args: string[] = []) => {
-  const shell = platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/zsh');
+  console.log('[pty-create] START', scriptPath, JSON.stringify(args));
   const env = {
     ...process.env,
     PATH: `${bundledBin}:/usr/local/bin:/opt/homebrew/bin:/Users/careycarroll/bin:${process.env.PATH}`,
@@ -162,20 +171,25 @@ ipcMain.handle('pty-create', (event, scriptPath: string, args: string[] = []) =>
   };
 
   if (activePty) {
-    activePty.kill();
+    // Detach old PTY's ref BEFORE killing so its onExit callback
+    // doesn't stomp the new PTY we're about to spawn.
+    const stale = activePty;
     activePty = null;
+    stale.kill();
   }
 
-  // Shell-quote each arg (single-quote, escape embedded single quotes)
-  const shellQuote = (a: string) => `'${a.replace(/'/g, `'\''`)}'`;
-  const cmdline = [scriptPath, ...args.map(shellQuote)].join(' ');
-
-  activePty = pty.spawn(shell, ['-c', cmdline], {
-    name: 'xterm-256color',
-    cols: 120,
-    rows: 40,
-    env,
-  });
+  try {
+    activePty = pty.spawn(scriptPath, args, {
+      name: 'xterm-256color',
+      cols: 120,
+      rows: 40,
+      env,
+    });
+    console.log('[pty-create] spawn ok pid=', activePty.pid);
+  } catch (err) {
+    console.error('[pty-create] SPAWN FAILED:', err);
+    return false;
+  }
 
   const win = BrowserWindow.fromWebContents(event.sender);
 
@@ -183,15 +197,45 @@ ipcMain.handle('pty-create', (event, scriptPath: string, args: string[] = []) =>
     win?.webContents.send('pty-output', data);
   });
 
-  activePty.onExit(() => {
+  const thisPty = activePty;
+  thisPty.onExit((e) => {
+    console.log('[pty-create] exited', JSON.stringify(e), 'script:', scriptPath);
     win?.webContents.send('pty-exit');
+    if (activePty !== thisPty) return;
     activePty = null;
+
+    // Auto-respawn shell so terminal stays usable after script exits.
+    const shell = process.env.SHELL || '/bin/zsh';
+    const respawnEnv = {
+      ...process.env,
+      PATH: `${bundledBin}:/usr/local/bin:/opt/homebrew/bin:/Users/careycarroll/bin:${process.env.PATH}`,
+      TERM: 'xterm-256color',
+      PROMPT_EOL_MARK: '',
+    };
+    try {
+      const respawned = pty.spawn(shell, [], {
+        name: 'xterm-256color',
+        cols: 120,
+        rows: 40,
+        env: respawnEnv,
+      });
+      activePty = respawned;
+      console.log('[pty-create] auto-respawn shell pid=', respawned.pid);
+      respawned.onData((data) => win?.webContents.send('pty-output', data));
+      respawned.onExit(() => {
+        win?.webContents.send('pty-exit');
+        if (activePty === respawned) activePty = null;
+      });
+    } catch (err) {
+      console.error('[pty-create] auto-respawn FAILED:', err);
+    }
   });
 
   return true;
 });
 
 ipcMain.on('pty-input', (_event, data: string) => {
+  console.log('[pty-input] activePty=', !!activePty, 'data=', JSON.stringify(data));
   activePty?.write(data);
 });
 
