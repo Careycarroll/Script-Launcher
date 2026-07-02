@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react';
-const { GetGroups, RunScript, PickFile, PickFolder, PtyCreate, AnalyzeBookmarks } = window.electronAPI;
+import { useState, useEffect, useRef } from 'react';
+const { GetGroups, RunScript, PickFile, PickFolder, PtyCreate } = window.electronAPI;
 import TerminalPanel from './Terminal';
 import ThemePanel, { loadThemeOverrides, applyOverride } from './ThemePanel';
+import WidgetRenderer from './WidgetRenderer';
+import BookmarkEditor from './features/BookmarkEditor';
 import './App.css';
 
 function App() {
@@ -12,13 +14,10 @@ function App() {
   const [queueMode, setQueueMode] = useState(null); // null | 'file' | 'folder'
   const [output, setOutput]       = useState('');
   const [status, setStatus]       = useState('idle'); // idle | running | success | error
-  const [activeTab, setActiveTab]   = useState('scripts'); // scripts | terminal
-  const [bookmarkPdfPath, setBookmarkPdfPath] = useState('');
-  const [bookmarkText, setBookmarkText] = useState('');
-  const [bookmarkInfo, setBookmarkInfo] = useState('');
-  const [bookmarkAnalyzing, setBookmarkAnalyzing] = useState(false);
-  const [bookmarkApplying, setBookmarkApplying] = useState(false);
-  const [themeOpen, setThemeOpen]   = useState(false);
+  const [activeTab, setActiveTab] = useState('scripts'); // scripts | terminal
+  const [themeOpen, setThemeOpen] = useState(false);
+  const [bookmarkCanApply, setBookmarkCanApply] = useState(false);
+  const bookmarkRef = useRef(null);
 
   useEffect(() => {
     GetGroups().then(setGroups);
@@ -36,6 +35,7 @@ function App() {
     : null;
 
   const isMultiFile = script?.argDefs?.some(d => d.multiFile) ?? false;
+  const isBookmarkEditor = script?.argDefs?.some(d => d.type === 'bookmarkEditor') ?? false;
   const queueHasFiles = queueMode === 'file';
   const queueHasFolder = queueMode === 'folder';
 
@@ -43,11 +43,6 @@ function App() {
   function selectScript(groupIdx, scriptIdx) {
     const s = groups[groupIdx].scripts[scriptIdx];
     setSelected({ groupIdx, scriptIdx });
-    setBookmarkPdfPath('');
-    setBookmarkText('');
-    setBookmarkInfo('');
-    // Default-initialize args. Checkboxes (booleans) need explicit string
-    // representation so the existing string[] state works unchanged.
     setArgs(s.argDefs ? s.argDefs.map(d => {
       if (d.type === 'checkbox') return d.default ? 'true' : 'false';
       if (d.default == null) return '';
@@ -57,6 +52,8 @@ function App() {
     setQueueMode(null);
     setOutput('');
     setStatus('idle');
+    setBookmarkCanApply(false);
+    bookmarkRef.current?.reset();
   }
 
   // ── Arg input ───────────────────────────────────────────────────────────────
@@ -95,65 +92,6 @@ function App() {
     });
   }
 
-
-  // ── Bookmark editor handlers ───────────────────────────────────────────────
-  async function pickBookmarkPdf() {
-    const path = await PickFile(['pdf']);
-    if (!path) return;
-    setBookmarkPdfPath(path);
-    setBookmarkText('');
-    setBookmarkInfo('');
-  }
-
-  async function analyzeBookmarks() {
-    if (!bookmarkPdfPath) return;
-    setBookmarkAnalyzing(true);
-    try {
-      const result = await AnalyzeBookmarks(bookmarkPdfPath);
-      const headerLines = [
-        `# ${result.info || 'Analysis complete.'}`,
-        `# Edit below; lines starting with # are ignored on save.`,
-        `# Format: page:title (one per line). Blank lines OK.`,
-        '',
-      ];
-      const entryLines = (result.entries || []).map(([page, title]) => `${page}:${title}`);
-      setBookmarkText([...headerLines, ...entryLines].join('\n'));
-      setBookmarkInfo(result.info || '');
-    } catch (e) {
-      setBookmarkInfo('Analysis failed: ' + (e?.message || e));
-    } finally {
-      setBookmarkAnalyzing(false);
-    }
-  }
-
-  async function applyBookmarks() {
-    if (!bookmarkPdfPath || !bookmarkText.trim()) return;
-    setBookmarkApplying(true);
-    setOutput('');
-    setStatus('running');
-    // Pass file as positional, list as --pdf_bookmark_add-list <value>
-    const args = [bookmarkPdfPath, '--pdf_bookmark_add-list', bookmarkText];
-    // We invoke the underlying pdf_bookmark_add op by spoofing the operation field
-    // through a synthetic script reference. Easiest: find the PDF Add Bookmarks
-    // entry in the registry and call RunScript with it.
-    let addGroupIdx = -1, addScriptIdx = -1;
-    groups.forEach((g, gi) => {
-      g.scripts?.forEach((s, si) => {
-        if (s.operation === 'pdf_bookmark_add') { addGroupIdx = gi; addScriptIdx = si; }
-      });
-    });
-    if (addGroupIdx < 0) {
-      setOutput('Internal error: pdf_bookmark_add entry missing from registry.');
-      setStatus('error');
-      setBookmarkApplying(false);
-      return;
-    }
-    const result = await RunScript(addGroupIdx, addScriptIdx, args);
-    setOutput(result.output || result.error || '(no output)');
-    setStatus(result.error ? 'error' : 'success');
-    setBookmarkApplying(false);
-  }
-
   // ── Run ─────────────────────────────────────────────────────────────────────
   async function runScript() {
     if (!selected) return;
@@ -161,8 +99,7 @@ function App() {
     setOutput('');
 
     // Build argv client-side: walk argDefs, attach flags to values, collect
-    // positionals in order. Pass verbatim to main.ts — no index-based
-    // reconstruction in main, which breaks when multiFile expands the array.
+    // positionals in order. Pass verbatim to main.ts.
     //
     // Per-widget rules:
     //   checkbox + invertFlag: pass --flag only when UNchecked
@@ -217,11 +154,8 @@ function App() {
     setStatus('idle');
     setFileQueue([]);
     setQueueMode(null);
-    setBookmarkPdfPath('');
-    setBookmarkText('');
-    setBookmarkInfo('');
-    setBookmarkAnalyzing(false);
-    setBookmarkApplying(false);
+    setBookmarkCanApply(false);
+    bookmarkRef.current?.reset();
   }
 
   // ── Status label ────────────────────────────────────────────────────────────
@@ -246,320 +180,137 @@ function App() {
       <ThemePanel open={themeOpen} onClose={() => setThemeOpen(false)} />
       <div className="app" style={{ display: activeTab === 'scripts' ? 'flex' : 'none' }}>
 
-      {/* ── Sidebar ──────────────────────────────────────────────────────── */}
-      <nav className="sidebar">
-        {groups.map((group, gi) => (
-          <div key={gi}>
-            <div className="group-label">{group.name}</div>
-            {group.scripts.map((s, si) => (
-              <div
-                key={si}
-                className={`nav-item ${
-                  selected?.groupIdx === gi && selected?.scriptIdx === si ? 'active' : ''
-                }`}
-                onClick={() => selectScript(gi, si)}
-              >
-                <span className="nav-dot" />
-                {s.name}
-              </div>
-            ))}
-          </div>
-        ))}
-      </nav>
-
-      {/* ── Detail Panel ─────────────────────────────────────────────────── */}
-      <main className="detail">
-        {!script ? (
-          <div className="empty-state">Select a script to get started</div>
-        ) : (
-          <>
-            {/* Header */}
-            <div className="detail-header">
-              <div className="script-name">{script.name}</div>
-              <div className="script-desc">{script.description}</div>
-              {script.help && (
-                <div className="help-box">
-                  <strong>About</strong>
-                  {script.help}
+        {/* ── Sidebar ──────────────────────────────────────────────────────── */}
+        <nav className="sidebar">
+          {groups.map((group, gi) => (
+            <div key={gi}>
+              <div className="group-label">{group.name}</div>
+              {group.scripts.map((s, si) => (
+                <div
+                  key={si}
+                  className={`nav-item ${
+                    selected?.groupIdx === gi && selected?.scriptIdx === si ? 'active' : ''
+                  }`}
+                  onClick={() => selectScript(gi, si)}
+                >
+                  <span className="nav-dot" />
+                  {s.name}
                 </div>
-              )}
+              ))}
             </div>
+          ))}
+        </nav>
 
-            {/* Args */}
-            <div className="args-section">
-
-              {/* Multi-file queue */}
-              {isMultiFile && (
-                <>
-                  <div className="arg-label">Files / Folders</div>
-                  <div className="file-queue">
-                    {fileQueue.length === 0 && (
-                      <div style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 8 }}>
-                        No files queued yet
-                      </div>
-                    )}
-                    {fileQueue.map((f, i) => (
-                      <div key={i} className="file-queue-item">
-                        <span>{f}</span>
-                        <button onClick={() => removeFromQueue(i)}>✕</button>
-                      </div>
-                    ))}
+        {/* ── Detail Panel ─────────────────────────────────────────────────── */}
+        <main className="detail">
+          {!script ? (
+            <div className="empty-state">Select a script to get started</div>
+          ) : (
+            <>
+              {/* Header */}
+              <div className="detail-header">
+                <div className="script-name">{script.name}</div>
+                <div className="script-desc">{script.description}</div>
+                {script.help && (
+                  <div className="help-box">
+                    <strong>About</strong>
+                    {script.help}
                   </div>
-                  <div className="queue-actions">
-                    <button className="btn-pick" onClick={() => addToQueue(false)} disabled={queueHasFolder}>
-                      + Add File
-                    </button>
-                    {script.argDefs?.some(d => d.dirPicker) && (
-                      <button className="btn-pick" onClick={() => addToQueue(true)} disabled={queueHasFiles}>
-                        + Add Folder
-                      </button>
-                    )}
-                  </div>
-                </>
-              )}
+                )}
+              </div>
 
-              {/* Standard args — rendered using original index to keep args[] aligned.
-                  Widget chosen by def.type, falling back to options/text.
-                  showWhen: {field, value} hides this widget unless the named
-                  arg's current value matches. Lets a dropdown control which
-                  related widgets are visible. */}
-              {script.argDefs?.map((def, i) => {
-                if (def.multiFile) return null;
-                if (def.hidden) return null;
-                if (def.showWhen) {
-                  const targetIdx = script.argDefs.findIndex(
-                    d => d.label === def.showWhen.field
-                  );
-                  if (targetIdx >= 0) {
-                    const targetVal = args[targetIdx] ?? script.argDefs[targetIdx].default;
-                    if (targetVal !== def.showWhen.value) return null;
-                  }
-                }
+              {/* Args */}
+              <div className="args-section">
 
-                const label = (
-                  <div className="arg-label">
-                    {def.label}
-                    {def.tooltip && (
-                      <span className="arg-tooltip" title={def.tooltip}>?</span>
-                    )}
-                  </div>
-                );
-
-                // Checkbox
-                if (def.type === 'checkbox') {
-                  const checked = args[i] === 'true' || args[i] === true;
-                  return (
-                    <div key={i} className="arg-group">
-                      {label}
-                      <div className="arg-row">
-                        <label className="checkbox-row">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={e => setArg(i, e.target.checked ? 'true' : 'false')}
-                          />
-                          <span>{def.checkboxLabel || 'Enabled'}</span>
-                        </label>
-                      </div>
-                    </div>
-                  );
-                }
-
-                // Textarea (multi-line text input)
-                if (def.type === 'textarea') {
-                  return (
-                    <div key={i} className="arg-group">
-                      {label}
-                      <div className="arg-row">
-                        <textarea
-                          className="arg-input arg-textarea"
-                          value={args[i] || ''}
-                          placeholder={def.placeholder || ''}
-                          rows={def.rows || 8}
-                          onChange={e => setArg(i, e.target.value)}
-                        />
-                      </div>
-                    </div>
-                  );
-                }
-
-                // Number
-                if (def.type === 'number') {
-                  return (
-                    <div key={i} className="arg-group">
-                      {label}
-                      <div className="arg-row">
-                        <input
-                          type="number"
-                          className="arg-input"
-                          value={args[i] ?? ''}
-                          placeholder={def.default != null ? String(def.default) : ''}
-                          min={def.min}
-                          max={def.max}
-                          step={def.step || 1}
-                          onChange={e => setArg(i, e.target.value)}
-                        />
-                      </div>
-                    </div>
-                  );
-                }
-
-                // Output directory picker — text + Pick Folder, labeled for output
-                if (def.type === 'outputDir') {
-                  return (
-                    <div key={i} className="arg-group">
-                      {label}
-                      <div className="arg-row">
-                        <input
-                          className="arg-input"
-                          value={args[i] || ''}
-                          placeholder={def.placeholder || 'Same as input folder'}
-                          onChange={e => setArg(i, e.target.value)}
-                        />
-                        <button className="btn-pick" onClick={() => pickFolder(i)}>
-                          Pick Folder
-                        </button>
-                      </div>
-                    </div>
-                  );
-                }
-
-
-                // Bookmark editor — file picker collapses after analysis,
-                // textarea fills available space for editing the proposed list.
-                if (def.type === 'bookmarkEditor') {
-                  const hasAnalyzed = bookmarkText !== '';
-                  return (
-                    <div key={i} className="bookmark-editor">
-                      {!hasAnalyzed && (
-                        <div className="bookmark-picker">
-                          <div className="arg-label">PDF file</div>
-                          <div className="arg-row">
-                            <input
-                              className="arg-input"
-                              value={bookmarkPdfPath}
-                              placeholder="No file selected"
-                              readOnly
-                            />
-                            <button className="btn-pick" onClick={pickBookmarkPdf}>
-                              Pick PDF
-                            </button>
-                          </div>
-                          <button
-                            className="btn-run"
-                            onClick={analyzeBookmarks}
-                            disabled={!bookmarkPdfPath || bookmarkAnalyzing}
-                            style={{ marginTop: 12 }}
-                          >
-                            {bookmarkAnalyzing ? 'Analyzing…' : 'Analyze'}
-                          </button>
-                          {bookmarkInfo && !bookmarkAnalyzing && (
-                            <div className="bookmark-info">{bookmarkInfo}</div>
-                          )}
+                {/* Multi-file queue */}
+                {isMultiFile && (
+                  <>
+                    <div className="arg-label">Files / Folders</div>
+                    <div className="file-queue">
+                      {fileQueue.length === 0 && (
+                        <div style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 8 }}>
+                          No files queued yet
                         </div>
                       )}
-                      {hasAnalyzed && (
-                        <>
-                          <div className="bookmark-toolbar">
-                            <span className="bookmark-file">
-                              {bookmarkPdfPath.split('/').pop()}
-                            </span>
-                            <button
-                              className="btn-secondary"
-                              onClick={() => { setBookmarkText(''); setBookmarkInfo(''); }}
-                            >
-                              ← Change PDF
-                            </button>
-                          </div>
-                          <textarea
-                            className="arg-input arg-textarea bookmark-textarea"
-                            value={bookmarkText}
-                            onChange={e => setBookmarkText(e.target.value)}
-                            spellCheck={false}
-                          />
-                        </>
-                      )}
+                      {fileQueue.map((f, i) => (
+                        <div key={i} className="file-queue-item">
+                          <span>{f}</span>
+                          <button onClick={() => removeFromQueue(i)}>✕</button>
+                        </div>
+                      ))}
                     </div>
-                  );
-                }
-
-                // Default: dropdown if options, else text input (existing behavior).
-                return (
-                  <div key={i} className="arg-group">
-                    {label}
-                    <div className="arg-row">
-                      {def.options && def.options.length > 0 ? (
-                        <select
-                          className="arg-input"
-                          value={args[i] || def.default || ''}
-                          onChange={e => setArg(i, e.target.value)}
-                        >
-                          {def.options.map(opt => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          className="arg-input"
-                          value={args[i] || ''}
-                          placeholder={def.default || ''}
-                          onChange={e => setArg(i, e.target.value)}
-                        />
-                      )}
-                      {def.filePicker && (
-                        <button className="btn-pick" onClick={() => pickFile(i)}>
-                          Pick File
-                        </button>
-                      )}
-                      {def.dirPicker && !def.multiFile && (
-                        <button className="btn-pick" onClick={() => pickFolder(i)}>
-                          Pick Folder
+                    <div className="queue-actions">
+                      <button className="btn-pick" onClick={() => addToQueue(false)} disabled={queueHasFolder}>
+                        + Add File
+                      </button>
+                      {script.argDefs?.some(d => d.dirPicker) && (
+                        <button className="btn-pick" onClick={() => addToQueue(true)} disabled={queueHasFiles}>
+                          + Add Folder
                         </button>
                       )}
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  </>
+                )}
 
-            {/* Output */}
-            {output && (
-              <div className={`output-panel ${status === 'error' ? 'error' : ''}`}>
-                {output}
+                {/* Generic widgets (dispatched on def.type) */}
+                <WidgetRenderer
+                  argDefs={script.argDefs}
+                  args={args}
+                  setArg={setArg}
+                  pickFile={pickFile}
+                  pickFolder={pickFolder}
+                />
+
+                {/* Bookmark editor (bespoke feature — self-contained) */}
+                {isBookmarkEditor && (
+                  <BookmarkEditor
+                    ref={bookmarkRef}
+                    groups={groups}
+                    onStatusChange={setStatus}
+                    onOutput={setOutput}
+                    onCanApplyChange={setBookmarkCanApply}
+                  />
+                )}
               </div>
-            )}
 
-            {/* Footer */}
-            <div className="detail-footer">
-              {(script.argDefs || []).some(d => d.type === 'bookmarkEditor') ? (
-                <button
-                  className="btn-run"
-                  onClick={applyBookmarks}
-                  disabled={!bookmarkText.trim() || bookmarkApplying || status === 'running'}
-                >
-                  {bookmarkApplying ? 'Applying…' : 'Apply Bookmarks'}
-                </button>
-              ) : (
-                <button
-                  className="btn-run"
-                  onClick={runScript}
-                  disabled={status === 'running'}
-                >
-                  {status === 'running' ? 'Running…' : 'Run Script'}
-                </button>
+              {/* Output */}
+              {output && (
+                <div className={`output-panel ${status === 'error' ? 'error' : ''}`}>
+                  {output}
+                </div>
               )}
-              <button className="btn-secondary" onClick={clear}>
-                Clear
-              </button>
-              <div className={`status-badge ${status}`}>
-                {statusLabel}
+
+              {/* Footer */}
+              <div className="detail-footer">
+                {isBookmarkEditor ? (
+                  <button
+                    className="btn-run"
+                    onClick={() => bookmarkRef.current?.apply()}
+                    disabled={!bookmarkCanApply || status === 'running'}
+                  >
+                    {status === 'running' ? 'Applying…' : 'Apply Bookmarks'}
+                  </button>
+                ) : (
+                  <button
+                    className="btn-run"
+                    onClick={runScript}
+                    disabled={status === 'running'}
+                  >
+                    {status === 'running' ? 'Running…' : 'Run Script'}
+                  </button>
+                )}
+                <button className="btn-secondary" onClick={clear}>
+                  Clear
+                </button>
+                <div className={`status-badge ${status}`}>
+                  {statusLabel}
+                </div>
               </div>
-            </div>
-          </>
-        )}
-      </main>
-    </div>
-    <div className="terminal-tab" style={{ display: activeTab === 'terminal' ? 'flex' : 'none' }}>
+            </>
+          )}
+        </main>
+      </div>
+      <div className="terminal-tab" style={{ display: activeTab === 'terminal' ? 'flex' : 'none' }}>
         <TerminalPanel />
       </div>
     </div>
