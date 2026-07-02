@@ -32,3 +32,12 @@ go.work.sum
 # .vscode/
 scripttui
 electron-app/resources/bin/
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
