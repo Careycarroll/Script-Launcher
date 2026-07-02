@@ -4,14 +4,16 @@
     "scripts": [
       {
         "name": "Manage Vault",
-        "description": "Full vault management \u2014 create, edit, and organise vault entries",
+        "domain": "vault",
+        "description": "Full vault management — create, edit, and organise vault entries",
         "path": "/Users/careycarroll/bin/manage_vault",
-        "help": "CAWC Vault Session Manager. Handles course registration and pre-session setup. Launches a full interactive TUI \u2014 use its own menus to navigate. Returns here when you exit.",
+        "help": "CAWC Vault Session Manager. Handles course registration and pre-session setup. Launches a full interactive TUI — use its own menus to navigate. Returns here when you exit.",
         "interactive": true,
         "argDefs": []
       },
       {
         "name": "Vault Health",
+        "domain": "vault",
         "description": "Check vault integrity and surface broken or orphaned entries",
         "path": "/Users/careycarroll/bin/vault_health",
         "help": "Scans the CAWC Obsidian vault for broken wikilinks and orphaned notes. Ignores index files (prefixed _), image links, and stub notes. Outputs a report to the terminal and writes a markdown report to Obsidian at Help/Vault Health Report.md.",
@@ -25,6 +27,7 @@
     "scripts": [
       {
         "name": "Lecture Merge",
+        "domain": "media",
         "description": "Merge Panopto lecture recordings into a single clean video",
         "path": "/Users/careycarroll/bin/lecture_merge",
         "help": "Auto-classifies 3 Panopto .mp4 files by audio and bitrate, normalizes audio to EBU R128 (-16 LUFS), optionally overlays screen recording as PiP, and outputs a named session file. Place 3 .mp4 files in the Video Staging folder before running.",
@@ -37,7 +40,8 @@
     "name": "Documents",
     "scripts": [
       {
-        "name": "PDF \u2192 Text",
+        "name": "PDF → Text",
+        "domain": "documents",
         "description": "Extract plain text from one or more PDF files",
         "path": "python/scripts/docpipe.py",
         "runtime": "python",
@@ -48,24 +52,20 @@
             "label": "PDF files",
             "filePicker": true,
             "multiFile": true,
-            "extensions": [
-              "pdf"
-            ]
+            "extensions": ["pdf"]
           },
           {
             "label": "Layout",
             "flag": "--pdf_to_txt-layout",
             "default": "layout",
-            "options": [
-              "layout",
-              "plain"
-            ]
+            "options": ["layout", "plain"]
           }
         ],
         "operation": "pdf_to_txt"
       },
       {
-        "name": "Images \u2192 PDF",
+        "name": "Images → PDF",
+        "domain": "documents",
         "description": "Combine images into a single PDF",
         "path": "python/scripts/docpipe.py",
         "runtime": "python",
@@ -77,14 +77,7 @@
             "filePicker": true,
             "dirPicker": true,
             "multiFile": true,
-            "extensions": [
-              "png",
-              "jpg",
-              "jpeg",
-              "tif",
-              "tiff",
-              "bmp"
-            ]
+            "extensions": ["png", "jpg", "jpeg", "tif", "tiff", "bmp"]
           },
           {
             "label": "Output filename",
@@ -95,21 +88,18 @@
             "label": "Page size",
             "flag": "--images_to_pdf-page_size",
             "default": "auto",
-            "options": [
-              "auto",
-              "letter",
-              "a4"
-            ]
+            "options": ["auto", "letter", "a4"]
           }
         ],
         "operation": "images_to_pdf"
       },
       {
-        "name": "PPTX \u2192 PDF",
+        "name": "PPTX → PDF",
+        "domain": "documents",
         "description": "Convert PowerPoint presentations to PDF",
         "path": "python/scripts/docpipe.py",
         "runtime": "python",
-        "help": "Converts .pptx files to PDF using Microsoft PowerPoint. Queue files individually or pick a folder. Compression (default: yes) optimizes file size via pymupdf \u2014 toggle off to keep PowerPoint's raw output. Requires Microsoft PowerPoint installed. macOS only for now.",
+        "help": "Converts .pptx files to PDF using Microsoft PowerPoint. Queue files individually or pick a folder. Compression (default: yes) optimizes file size via pymupdf — toggle off to keep PowerPoint's raw output. Requires Microsoft PowerPoint installed. macOS only for now.",
         "interactive": false,
         "argDefs": [
           {
@@ -117,26 +107,20 @@
             "filePicker": true,
             "dirPicker": true,
             "multiFile": true,
-            "extensions": [
-              "pptx"
-            ]
+            "extensions": ["pptx"]
           },
           {
             "label": "Image quality",
             "flag": "--pptx_to_pdf-compress",
             "default": "medium",
-            "options": [
-              "none",
-              "small",
-              "medium",
-              "large"
-            ]
+            "options": ["none", "small", "medium", "large"]
           }
         ],
         "operation": "pptx_to_pdf"
       },
       {
-        "name": "PPTX \u2192 Text",
+        "name": "PPTX → Text",
+        "domain": "documents",
         "description": "Extract plain text from PowerPoint presentations",
         "path": "python/scripts/docpipe.py",
         "runtime": "python",
@@ -148,30 +132,20 @@
             "filePicker": true,
             "dirPicker": true,
             "multiFile": true,
-            "extensions": [
-              "pptx"
-            ]
+            "extensions": ["pptx"]
           },
           {
             "label": "Image quality",
             "flag": "--pptx_to_pdf-compress",
             "default": "medium",
-            "options": [
-              "none",
-              "small",
-              "medium",
-              "large"
-            ],
+            "options": ["none", "small", "medium", "large"],
             "tooltip": "DPI for embedded images in the intermediate PDF. medium = 150 DPI (balanced). small = 72 DPI (smallest). large = 300 DPI (print quality). none = PowerPoint raw."
           },
           {
             "label": "Text layout",
             "flag": "--pdf_to_txt-layout",
             "default": "layout",
-            "options": [
-              "layout",
-              "plain"
-            ],
+            "options": ["layout", "plain"],
             "tooltip": "layout preserves columns and tables via row reconstruction. plain extracts continuous reading-order text."
           },
           {
@@ -195,6 +169,7 @@
       },
       {
         "name": "PDF Merge",
+        "domain": "documents",
         "description": "Combine multiple PDFs into a single file",
         "path": "python/scripts/docpipe.py",
         "runtime": "python",
@@ -207,9 +182,7 @@
             "filePicker": true,
             "dirPicker": true,
             "multiFile": true,
-            "extensions": [
-              "pdf"
-            ]
+            "extensions": ["pdf"]
           },
           {
             "label": "Output filename",
@@ -220,21 +193,19 @@
             "label": "Bookmarks",
             "flag": "--pdf_merge-bookmarks",
             "default": "yes",
-            "options": [
-              "yes",
-              "no"
-            ],
+            "options": ["yes", "no"],
             "tooltip": "yes (default) adds a bookmark per source file in the merged PDF, named after the source filename. no = raw concatenation."
           }
         ]
       },
       {
         "name": "PDF Strip Metadata",
+        "domain": "documents",
         "description": "Remove author, dates, and identifying metadata from a PDF",
         "path": "python/scripts/docpipe.py",
         "runtime": "python",
         "operation": "pdf_strip",
-        "help": "Removes all identifying metadata (info dict + XMP). The /ID hash is regenerated by the PDF library but contains no recoverable info. Output saved as <filename>_stripped.pdf \u2014 re-running overwrites any previous stripped output.",
+        "help": "Removes all identifying metadata (info dict + XMP). The /ID hash is regenerated by the PDF library but contains no recoverable info. Output saved as <filename>_stripped.pdf — re-running overwrites any previous stripped output.",
         "interactive": false,
         "argDefs": [
           {
@@ -242,27 +213,24 @@
             "filePicker": true,
             "dirPicker": true,
             "multiFile": true,
-            "extensions": [
-              "pdf"
-            ]
+            "extensions": ["pdf"]
           }
         ]
       },
       {
         "name": "PDF Add Bookmarks",
+        "domain": "documents",
         "description": "Write bookmarks into a PDF from a page:title list",
         "path": "python/scripts/docpipe.py",
         "runtime": "python",
         "operation": "pdf_bookmark_add",
-        "help": "Adds a clickable bookmark sidebar to a PDF. Enter one bookmark per line as 'page:title' (e.g. '12:Methods'). Blank lines and # comments are ignored. Output saved alongside the input as <filename>_bookmarked.pdf \u2014 re-running overwrites any previous bookmarked output.",
+        "help": "Adds a clickable bookmark sidebar to a PDF. Enter one bookmark per line as 'page:title' (e.g. '12:Methods'). Blank lines and # comments are ignored. Output saved alongside the input as <filename>_bookmarked.pdf — re-running overwrites any previous bookmarked output.",
         "interactive": false,
         "argDefs": [
           {
             "label": "PDF file",
             "filePicker": true,
-            "extensions": [
-              "pdf"
-            ]
+            "extensions": ["pdf"]
           },
           {
             "label": "Bookmark list (page:title per line)",
@@ -276,6 +244,7 @@
       },
       {
         "name": "PDF Bookmarks",
+        "domain": "documents",
         "description": "Auto-detect, edit, and apply bookmarks to a PDF",
         "path": "python/scripts/docpipe.py",
         "runtime": "python",
@@ -290,29 +259,24 @@
       },
       {
         "name": "PDF Split",
+        "domain": "documents",
         "description": "Split a PDF into multiple files by range, every N pages, or by bookmark",
         "path": "python/scripts/docpipe.py",
         "runtime": "python",
         "operation": "pdf_split",
-        "help": "Split modes:\n\u2022 Bookmark \u2014 each top-level bookmark becomes its own file (named after the bookmark title). Front matter before the first bookmark goes to '_00_Front_Matter.pdf'.\n\u2022 Range \u2014 explicit page ranges, e.g. '1-12, 13-24, 25-end'. Overlaps allowed.\n\u2022 Every N \u2014 uniform chunks of N pages each.\n\nOutput filenames include page ranges (range/every) or bookmark titles (bookmark mode). An audit file '<stem>_split.txt' lists every chunk produced. Output lands next to the source PDF; use Output folder to redirect.",
+        "help": "Split modes:\n• Bookmark — each top-level bookmark becomes its own file (named after the bookmark title). Front matter before the first bookmark goes to '_00_Front_Matter.pdf'.\n• Range — explicit page ranges, e.g. '1-12, 13-24, 25-end'. Overlaps allowed.\n• Every N — uniform chunks of N pages each.\n\nOutput filenames include page ranges (range/every) or bookmark titles (bookmark mode). An audit file '<stem>_split.txt' lists every chunk produced. Output lands next to the source PDF; use Output folder to redirect.",
         "interactive": false,
         "argDefs": [
           {
             "label": "PDF file",
             "filePicker": true,
-            "extensions": [
-              "pdf"
-            ]
+            "extensions": ["pdf"]
           },
           {
             "label": "Mode",
             "flag": "--pdf_split-mode",
             "default": "bookmark",
-            "options": [
-              "bookmark",
-              "range",
-              "every"
-            ],
+            "options": ["bookmark", "range", "every"],
             "tooltip": "bookmark = split at each top-level bookmark. range = explicit page ranges. every = uniform N-page chunks."
           },
           {
@@ -355,6 +319,7 @@
     "scripts": [
       {
         "name": "Widget: Checkbox",
+        "domain": "developer",
         "description": "Test the checkbox widget end-to-end via --echo",
         "path": "python/scripts/docpipe.py",
         "runtime": "python",
@@ -379,6 +344,7 @@
       },
       {
         "name": "Widget: Number",
+        "domain": "developer",
         "description": "Test the number widget end-to-end via --echo",
         "path": "python/scripts/docpipe.py",
         "runtime": "python",
@@ -404,6 +370,7 @@
       },
       {
         "name": "Widget: Output Folder",
+        "domain": "developer",
         "description": "Test the output-folder widget end-to-end via --echo",
         "path": "python/scripts/docpipe.py",
         "runtime": "python",
@@ -426,6 +393,7 @@
       },
       {
         "name": "Widget: All Combined",
+        "domain": "developer",
         "description": "Exercise every new widget in one entry",
         "path": "python/scripts/docpipe.py",
         "runtime": "python",
