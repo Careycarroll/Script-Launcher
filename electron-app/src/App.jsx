@@ -4,6 +4,7 @@ import TerminalPanel from './Terminal';
 import ThemePanel, { loadThemeOverrides, applyOverride } from './ThemePanel';
 import WidgetRenderer from './WidgetRenderer';
 import BookmarkEditor from './features/BookmarkEditor';
+import heelworksIcon from './assets/heelworks-icon.png';
 import './App.css';
 
 function App() {
@@ -170,7 +171,10 @@ function App() {
   return (
     <div className="app-wrapper">
       <header className="tab-bar">
-        <span className="tab-bar-title">⚡ Script Launcher</span>
+        <span className="tab-bar-title">
+  <img src={heelworksIcon} alt="" className="tab-bar-icon" />
+  Heelworks
+</span>
         <div className="tabs">
           <button className={`tab ${activeTab === 'scripts' ? 'active' : ''}`} onClick={() => setActiveTab('scripts')}>Scripts</button>
           <button className={`tab ${activeTab === 'terminal' ? 'active' : ''}`} onClick={() => setActiveTab('terminal')}>Terminal</button>

@@ -1,6 +1,12 @@
-# ⚡ Script Launcher — Electron
+<div align="center">
+  <img src="../docs/assets/heelworks-icon.png" width="96" alt="Heelworks icon" />
+  <h1>⚡ Heelworks</h1>
+  <p><em>The Electron frontend — bundled Python pipeline, embedded terminal, live theming</em></p>
+</div>
 
-The Electron frontend for Script Launcher. Provides a native macOS app with an embedded xterm.js terminal, a self-contained Python pipeline for document operations, and a live theme customization drawer.
+# Heelworks — Electron
+
+The Electron frontend for Heelworks. Provides a native macOS app with an embedded xterm.js terminal, a self-contained Python pipeline for document operations, and a live theme customization drawer.
 
 ---
 
@@ -86,7 +92,7 @@ Hot reload is enabled for `App.jsx`, `App.css`, and `renderer.tsx`. Changes to `
 npm run make
 ```
 
-Output: `electron-app/out/Script Launcher-darwin-arm64/Script Launcher.app`
+Output: `electron-app/out/Heelworks-darwin-arm64/Heelworks.app`
 
 ---
 

@@ -1,8 +1,8 @@
 {
-  "name": "electron-app",
-  "productName": "electron-app",
+  "name": "heelworks",
+  "productName": "Heelworks",
   "version": "1.0.0",
-  "description": "My Electron application description",
+  "description": "Heelworks — personal toolkit launcher for macOS. Documents, Vault, Media, and AI tools under one roof.",
   "main": ".vite/build/main.js",
   "private": true,
   "scripts": {

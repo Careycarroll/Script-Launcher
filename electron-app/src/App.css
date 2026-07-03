@@ -401,6 +401,14 @@ body {
   margin-right: auto;
 }
 
+.tab-bar-icon {
+  width: 20px;
+  height: 20px;
+  vertical-align: middle;
+  margin-right: 8px;
+  border-radius: 4px;
+}
+
 .tabs {
   display: flex;
   gap: 4px;

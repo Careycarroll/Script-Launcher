@@ -1,9 +1,15 @@
-# ⚡ Script Launcher
+<div align="center">
+  <img src="docs/assets/heelworks-icon.png" width="128" alt="Heelworks icon" />
+  <h1>⚡ Heelworks</h1>
+  <p><em>Personal toolkit launcher for macOS</em></p>
+</div>
+
+# Heelworks
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![tests](https://github.com/Careycarroll/Script-Launcher/actions/workflows/tests.yml/badge.svg)](https://github.com/Careycarroll/Script-Launcher/actions/workflows/tests.yml)
 
-A multi-interface script launcher for macOS — three frontends, two registries. Add a script once in `registry/registry.go` (TUI + GUI) or `electron-app/registry.json` (Electron) and it appears in that frontend.
+Heelworks is a personal macOS toolkit that hosts multiple tools under one roof — documents, vault, media, and (upcoming) AI features. Three frontends, two registries. Add a script once in `registry/registry.go` (TUI + GUI) or `electron-app/registry.json` (Electron) and it appears in that frontend.
 
 ---
 

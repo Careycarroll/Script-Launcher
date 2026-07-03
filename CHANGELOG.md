@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Renamed the Electron app from "Script Launcher" to "Heelworks."** New name
+  ties the app to its UNC MBA context (Tar Heel + workbench) and reflects the
+  broader scope the app is growing into — documents, vault, media, and eventual
+  AI features hosted under one roof. Repo name (`Script-Launcher`) preserved
+  for TUI/GUI continuity per ADR-0003. `productName` in `package.json`,
+  packaged `.app` output path, window title, and in-app header all updated.
+
+### Added
+
+- **Heelworks app icon.** Carolina Blue argyle background with a bold white
+  "H" and corner watermarks representing the four domains (documents, vault,
+  media, AI). Bundled as `.icns` in `electron-app/resources/icons/` and wired
+  into `forge.config.ts`. Also committed as a PNG in `docs/assets/` for
+  README rendering.
+- **README hero images.** Both the root and Electron READMEs now open with the
+  Heelworks icon and tagline.
+
+### Deferred
+
+- Dev-mode dock icon (`npm start`) still shows the default Electron atom.
+  Packaged builds display the correct Heelworks icon. Fixing dev mode requires
+  a runtime `app.dock.setIcon()` call — not worth the code churn for a
+  cosmetic-only, developer-only issue.
+
 ## [0.4.0] - 2026-06-27
 
 First tagged release. Captures the state of the project at the point of adopting
