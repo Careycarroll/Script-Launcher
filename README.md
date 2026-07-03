@@ -1,6 +1,6 @@
 <div align="center">
   <img src="docs/assets/heelworks-icon.png" width="128" alt="Heelworks icon" />
-  <h1>⚡ Heelworks</h1>
+  <h1>Heelworks</h1>
   <p><em>Personal toolkit launcher for macOS</em></p>
 </div>
 
