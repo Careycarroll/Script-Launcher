@@ -383,24 +383,25 @@ The renderer dispatches on `def.type`. Falls back to existing dropdown/text beha
 
 ### Schema reference
 
-| Field                  | Type                      | Purpose                                                     |
-| ---------------------- | ------------------------- | ----------------------------------------------------------- |
-| `operation`            | string                    | Top-level: operation or pipeline name passed to docpipe.py  |
-| `label`                | string                    | Visible label above the widget                              |
-| `flag`                 | string                    | CLI flag (e.g. `--pdf_to_txt-layout`); value appended after |
-| `default`              | string / number / boolean | Default value                                               |
-| `options`              | string[]                  | Dropdown choices                                            |
-| `filePicker`           | bool                      | Show file picker button                                     |
-| `dirPicker`            | bool                      | Show folder picker button                                   |
-| `multiFile`            | bool                      | Render as queue, multi-input mode                           |
-| `extensions`           | string[]                  | Restrict pickers to these extensions                        |
-| `hidden`               | bool                      | Don't render but pass flag/value at runtime                 |
-| `type`                 | string                    | Widget dispatch (see above)                                 |
-| `invertFlag`           | bool                      | Checkbox: pass flag only when UNchecked                     |
-| `min` / `max` / `step` | number                    | Number widget constraints                                   |
-| `checkboxLabel`        | string                    | Text next to checkbox                                       |
-| `placeholder`          | string                    | Input placeholder text                                      |
-| `tooltip`              | string                    | Hover tooltip on `?` icon next to label                     |
+| Field                  | Type                      | Purpose                                                                                                   |
+| ---------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `operation`            | string                    | Top-level: operation or pipeline name passed to docpipe.py                                                |
+| `label`                | string                    | Visible label above the widget                                                                            |
+| `flag`                 | string                    | CLI flag (e.g. `--pdf_to_txt-layout`); value appended after                                               |
+| `default`              | string / number / boolean | Default value                                                                                             |
+| `options`              | string[]                  | Dropdown choices                                                                                          |
+| `filePicker`           | bool                      | Show file picker button                                                                                   |
+| `dirPicker`            | bool                      | Show folder picker button                                                                                 |
+| `multiFile`            | bool                      | Render as queue, multi-input mode                                                                         |
+| `extensions`           | string[]                  | Restrict pickers to these extensions                                                                      |
+| `hidden`               | bool                      | Don't render but pass flag/value at runtime                                                               |
+| `type`                 | string                    | Widget dispatch (see above)                                                                               |
+| `invertFlag`           | bool                      | Checkbox: pass flag only when UNchecked                                                                   |
+| `min` / `max` / `step` | number                    | Number widget constraints                                                                                 |
+| `checkboxLabel`        | string                    | Text next to checkbox                                                                                     |
+| `placeholder`          | string                    | Input placeholder text                                                                                    |
+| `tooltip`              | string                    | Hover tooltip on `?` icon next to label                                                                   |
+| `component`            | string                    | Top-level: names a bespoke React component to render instead of the widget renderer. Overrides `argDefs`. |
 
 ### Hidden boolean flag pattern
 
