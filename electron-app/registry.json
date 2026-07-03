@@ -245,17 +245,13 @@
       {
         "name": "PDF Bookmarks",
         "domain": "documents",
+        "component": "BookmarkEditor",
         "description": "Auto-detect, edit, and apply bookmarks to a PDF",
         "path": "python/scripts/docpipe.py",
         "runtime": "python",
-        "help": "Pick a PDF and click Analyze. If the PDF has embedded outlines, those are loaded. Otherwise, font-signature detection proposes bookmarks based on the dominant title font. Edit the proposed list in the textarea (lines starting with # are comments, ignored on save). Click Apply to write <filename>_bookmarked.pdf alongside the input. Re-running overwrites the previous _bookmarked.pdf.",
+        "help": "...",
         "interactive": false,
-        "argDefs": [
-          {
-            "type": "bookmarkEditor",
-            "label": "PDF Bookmarks"
-          }
-        ]
+        "argDefs": []
       },
       {
         "name": "PDF Split",

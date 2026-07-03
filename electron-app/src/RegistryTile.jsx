@@ -1,36 +1,42 @@
-import { useState, useEffect, useRef } from 'react';
-const { GetGroups, RunScript, PickFile, PickFolder, PtyCreate } = window.electronAPI;
-import WidgetRenderer from './WidgetRenderer';
-import BookmarkEditor from './features/BookmarkEditor';
+import { useState, useEffect, useRef } from "react";
+const { GetGroups, RunScript, PickFile, PickFolder, PtyCreate } =
+  window.electronAPI;
+import WidgetRenderer from "./WidgetRenderer";
+import BookmarkEditor from "./features/BookmarkEditor";
 
 // Shared tile body for registry-driven domains (Documents, Vault, Media,
 // Developer). Filters the flat registry by `domain`, renders a sidebar of
 // matching entries, and hosts the detail panel using the existing widget
 // renderer + bookmark editor.
 //
+// Bespoke component registry. Keyed by the `component` field on a
+// registry entry. Missing key = fall back to WidgetRenderer.
+const COMPONENTS = {
+  BookmarkEditor,
+};
 // Bespoke tiles (future Vault Workbench, Video Silence Trim previews) will
 // be their own components — they don't use RegistryTile.
 export default function RegistryTile({ domain, title }) {
-  const [entries, setEntries]   = useState([]); // flat list, already filtered
+  const [entries, setEntries] = useState([]); // flat list, already filtered
   const [selected, setSelected] = useState(null); // index into entries
   const [rawGroups, setRawGroups] = useState([]); // needed for RunScript indices
-  const [args, setArgs]         = useState([]);
+  const [args, setArgs] = useState([]);
   const [fileQueue, setFileQueue] = useState([]);
   const [queueMode, setQueueMode] = useState(null);
-  const [output, setOutput]     = useState('');
-  const [status, setStatus]     = useState('idle');
+  const [output, setOutput] = useState("");
+  const [status, setStatus] = useState("idle");
   const [bookmarkCanApply, setBookmarkCanApply] = useState(false);
   const bookmarkRef = useRef(null);
 
   useEffect(() => {
-    GetGroups().then(groups => {
+    GetGroups().then((groups) => {
       setRawGroups(groups);
       // Flatten and filter, but remember original (groupIdx, scriptIdx) so
       // RunScript can still address by registry position.
       const flat = [];
       groups.forEach((group, gi) => {
         (group.scripts || []).forEach((s, si) => {
-          const d = s.domain || 'documents';
+          const d = s.domain || "documents";
           if (d === domain) flat.push({ ...s, groupIdx: gi, scriptIdx: si });
         });
       });
@@ -39,23 +45,30 @@ export default function RegistryTile({ domain, title }) {
   }, [domain]);
 
   const script = selected != null ? entries[selected] : null;
-  const isMultiFile = script?.argDefs?.some(d => d.multiFile) ?? false;
-  const isBookmarkEditor = script?.argDefs?.some(d => d.type === 'bookmarkEditor') ?? false;
-  const queueHasFiles = queueMode === 'file';
-  const queueHasFolder = queueMode === 'folder';
+  const isMultiFile = script?.argDefs?.some((d) => d.multiFile) ?? false;
+  const BespokeComponent = script?.component
+    ? COMPONENTS[script.component]
+    : null;
+  const usesBespoke = BespokeComponent != null;
+  const queueHasFiles = queueMode === "file";
+  const queueHasFolder = queueMode === "folder";
 
   function selectScript(idx) {
     const s = entries[idx];
     setSelected(idx);
-    setArgs(s.argDefs ? s.argDefs.map(d => {
-      if (d.type === 'checkbox') return d.default ? 'true' : 'false';
-      if (d.default == null) return '';
-      return String(d.default);
-    }) : []);
+    setArgs(
+      s.argDefs
+        ? s.argDefs.map((d) => {
+            if (d.type === "checkbox") return d.default ? "true" : "false";
+            if (d.default == null) return "";
+            return String(d.default);
+          })
+        : [],
+    );
     setFileQueue([]);
     setQueueMode(null);
-    setOutput('');
-    setStatus('idle');
+    setOutput("");
+    setStatus("idle");
     setBookmarkCanApply(false);
     bookmarkRef.current?.reset();
   }
@@ -76,15 +89,17 @@ export default function RegistryTile({ domain, title }) {
     if (path) setArg(argIdx, path);
   }
   async function addToQueue(dirMode) {
-    const multiDef = script.argDefs?.find(d => d.multiFile);
-    const path = dirMode ? await PickFolder() : await PickFile(multiDef?.extensions);
+    const multiDef = script.argDefs?.find((d) => d.multiFile);
+    const path = dirMode
+      ? await PickFolder()
+      : await PickFile(multiDef?.extensions);
     if (path) {
-      setFileQueue(q => [...q, path]);
-      setQueueMode(dirMode ? 'folder' : 'file');
+      setFileQueue((q) => [...q, path]);
+      setQueueMode(dirMode ? "folder" : "file");
     }
   }
   function removeFromQueue(idx) {
-    setFileQueue(q => {
+    setFileQueue((q) => {
       const next = q.filter((_, i) => i !== idx);
       if (next.length === 0) setQueueMode(null);
       return next;
@@ -93,8 +108,8 @@ export default function RegistryTile({ domain, title }) {
 
   async function runScript() {
     if (!script) return;
-    setStatus('running');
-    setOutput('');
+    setStatus("running");
+    setOutput("");
 
     const flags = [];
     const positional = [];
@@ -105,8 +120,8 @@ export default function RegistryTile({ domain, title }) {
         flags.push(def.flag);
         return;
       }
-      if (def.type === 'checkbox') {
-        const checked = v === 'true' || v === true;
+      if (def.type === "checkbox") {
+        const checked = v === "true" || v === true;
         if (def.invertFlag) {
           if (!checked && def.flag) flags.push(def.flag);
         } else {
@@ -114,8 +129,11 @@ export default function RegistryTile({ domain, title }) {
         }
         return;
       }
-      if (v === '' || v == null) return;
-      if (def.flag) { flags.push(def.flag, String(v)); return; }
+      if (v === "" || v == null) return;
+      if (def.flag) {
+        flags.push(def.flag, String(v));
+        return;
+      }
       positional.push(String(v));
     });
 
@@ -126,19 +144,23 @@ export default function RegistryTile({ domain, title }) {
     if (script.interactive) {
       // Interactive scripts route the user to the terminal tab via
       // hash navigation; PtyCreate spawns the PTY.
-      window.location.hash = '#/terminal';
+      window.location.hash = "#/terminal";
       await PtyCreate(script.path, finalArgs);
-      setStatus('idle');
+      setStatus("idle");
       return;
     }
-    const result = await RunScript(script.groupIdx, script.scriptIdx, finalArgs);
-    setOutput(result.output || result.error || '(no output)');
-    setStatus(result.error ? 'error' : 'success');
+    const result = await RunScript(
+      script.groupIdx,
+      script.scriptIdx,
+      finalArgs,
+    );
+    setOutput(result.output || result.error || "(no output)");
+    setStatus(result.error ? "error" : "success");
   }
 
   function clear() {
-    setOutput('');
-    setStatus('idle');
+    setOutput("");
+    setStatus("idle");
     setFileQueue([]);
     setQueueMode(null);
     setBookmarkCanApply(false);
@@ -146,7 +168,10 @@ export default function RegistryTile({ domain, title }) {
   }
 
   const statusLabel = {
-    idle: '', running: '⟳ Running', success: '✓ Success', error: '✗ Error',
+    idle: "",
+    running: "⟳ Running",
+    success: "✓ Success",
+    error: "✗ Error",
   }[status];
 
   return (
@@ -161,7 +186,7 @@ export default function RegistryTile({ domain, title }) {
         {entries.map((s, i) => (
           <div
             key={i}
-            className={`nav-item ${selected === i ? 'active' : ''}`}
+            className={`nav-item ${selected === i ? "active" : ""}`}
             onClick={() => selectScript(i)}
           >
             <span className="nav-dot" />
@@ -192,7 +217,13 @@ export default function RegistryTile({ domain, title }) {
                   <div className="arg-label">Files / Folders</div>
                   <div className="file-queue">
                     {fileQueue.length === 0 && (
-                      <div style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 8 }}>
+                      <div
+                        style={{
+                          color: "var(--text-muted)",
+                          fontSize: 12,
+                          marginBottom: 8,
+                        }}
+                      >
                         No files queued yet
                       </div>
                     )}
@@ -204,11 +235,19 @@ export default function RegistryTile({ domain, title }) {
                     ))}
                   </div>
                   <div className="queue-actions">
-                    <button className="btn-pick" onClick={() => addToQueue(false)} disabled={queueHasFolder}>
+                    <button
+                      className="btn-pick"
+                      onClick={() => addToQueue(false)}
+                      disabled={queueHasFolder}
+                    >
                       + Add File
                     </button>
-                    {script.argDefs?.some(d => d.dirPicker) && (
-                      <button className="btn-pick" onClick={() => addToQueue(true)} disabled={queueHasFiles}>
+                    {script.argDefs?.some((d) => d.dirPicker) && (
+                      <button
+                        className="btn-pick"
+                        onClick={() => addToQueue(true)}
+                        disabled={queueHasFiles}
+                      >
                         + Add Folder
                       </button>
                     )}
@@ -216,8 +255,8 @@ export default function RegistryTile({ domain, title }) {
                 </>
               )}
 
-              {isBookmarkEditor ? (
-                <BookmarkEditor
+              {usesBespoke ? (
+                <BespokeComponent
                   ref={bookmarkRef}
                   groups={rawGroups}
                   onStatusChange={setStatus}
@@ -236,17 +275,19 @@ export default function RegistryTile({ domain, title }) {
             </div>
 
             {output && (
-              <div className={`output-panel ${status === 'error' ? 'error' : ''}`}>
+              <div
+                className={`output-panel ${status === "error" ? "error" : ""}`}
+              >
                 {output}
               </div>
             )}
 
             <div className="detail-footer">
-              {isBookmarkEditor ? (
+              {usesBespoke ? (
                 <button
                   className="btn-run"
                   onClick={() => bookmarkRef.current?.apply()}
-                  disabled={!bookmarkCanApply || status === 'running'}
+                  disabled={!bookmarkCanApply || status === "running"}
                 >
                   Apply Bookmarks
                 </button>
@@ -254,12 +295,14 @@ export default function RegistryTile({ domain, title }) {
                 <button
                   className="btn-run"
                   onClick={runScript}
-                  disabled={status === 'running'}
+                  disabled={status === "running"}
                 >
-                  {status === 'running' ? 'Running…' : 'Run Script'}
+                  {status === "running" ? "Running…" : "Run Script"}
                 </button>
               )}
-              <button className="btn-secondary" onClick={clear}>Clear</button>
+              <button className="btn-secondary" onClick={clear}>
+                Clear
+              </button>
               <div className={`status-badge ${status}`}>{statusLabel}</div>
             </div>
           </>

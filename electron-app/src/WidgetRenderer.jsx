@@ -20,7 +20,6 @@ export default function WidgetRenderer({ argDefs, args, setArg, pickFile, pickFo
       {argDefs.map((def, i) => {
         if (def.multiFile) return null;
         if (def.hidden) return null;
-        if (def.type === 'bookmarkEditor') return null;
 
         if (def.showWhen) {
           const targetIdx = argDefs.findIndex(d => d.label === def.showWhen.field);
