@@ -11,6 +11,7 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 const config: ForgeConfig = {
   packagerConfig: {
     extraResource: ['resources/bin'],
+    icon: 'resources/icons/heelworks',
     asar: true,
   },
   rebuildConfig: {},
