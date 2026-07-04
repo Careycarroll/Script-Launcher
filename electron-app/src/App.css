@@ -1,33 +1,35 @@
 /* ── Palette ───────────────────────────────────────────────────────────────── */
 :root {
-  --bg-deep:      #0d1117;
-  --bg-sidebar:   #13294B;
-  --bg-surface:   #1a2744;
-  --bg-card:      #1f2f52;
-  --bg-input:     #162238;
+  --bg-deep: #0d1117;
+  --bg-sidebar: #13294b;
+  --bg-surface: #1a2744;
+  --bg-card: #1f2f52;
+  --bg-input: #162238;
 
-  --unc-blue:     #4B9CD3;
-  --tokyo-blue:   #7aa2f7;
-  --tokyo-cyan:   #7dcfff;
+  --unc-blue: #4b9cd3;
+  --tokyo-blue: #7aa2f7;
+  --tokyo-cyan: #7dcfff;
   --tokyo-purple: #bb9af7;
-  --tokyo-green:  #9ece6a;
-  --tokyo-red:    #f7768e;
+  --tokyo-green: #9ece6a;
+  --tokyo-red: #f7768e;
   --tokyo-orange: #ff9e64;
 
   --text-primary: #c0caf5;
-  --text-muted:   #8899b4;
+  --text-muted: #8899b4;
   --text-heading: #ffffff;
 }
 
 /* ── Reset ─────────────────────────────────────────────────────────────────── */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: var(--bg-deep);
   color: var(--text-primary);
   height: 100vh;
@@ -258,7 +260,7 @@ body {
   font-size: 12px;
   color: var(--text-primary);
   margin-bottom: 6px;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: "SF Mono", "Fira Code", monospace;
 }
 
 .file-queue-item button {
@@ -289,7 +291,7 @@ body {
   border: 1px solid rgba(122, 162, 247, 0.15);
   border-radius: 8px;
   padding: 12px 16px;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: "SF Mono", "Fira Code", monospace;
   font-size: 12px;
   color: var(--tokyo-green);
   line-height: 1.6;
@@ -325,7 +327,9 @@ body {
   font-weight: 600;
   color: #fff;
   cursor: pointer;
-  transition: background 0.15s, transform 0.1s;
+  transition:
+    background 0.15s,
+    transform 0.1s;
 }
 
 .btn-run:hover:not(:disabled) {
@@ -350,7 +354,9 @@ body {
   font-size: 13px;
   color: var(--text-muted);
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
 }
 
 .btn-secondary:hover {
@@ -367,10 +373,18 @@ body {
   gap: 4px;
 }
 
-.status-badge.idle    { color: var(--text-muted); }
-.status-badge.running { color: var(--tokyo-orange); }
-.status-badge.success { color: var(--tokyo-green); }
-.status-badge.error   { color: var(--tokyo-red); }
+.status-badge.idle {
+  color: var(--text-muted);
+}
+.status-badge.running {
+  color: var(--tokyo-orange);
+}
+.status-badge.success {
+  color: var(--tokyo-green);
+}
+.status-badge.error {
+  color: var(--tokyo-red);
+}
 
 /* ── App Wrapper ───────────────────────────────────────────────────────────── */
 .app-wrapper {
@@ -424,7 +438,9 @@ body {
   font-weight: 600;
   color: var(--text-muted);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 
 .tab:hover {
@@ -460,8 +476,8 @@ body {
   font-size: 11px;
   border-radius: 50%;
   background: var(--bg-deep, #0d1117);
-  color: var(--unc-blue, #4B9CD3);
-  border: 1px solid var(--unc-blue, #4B9CD3);
+  color: var(--unc-blue, #4b9cd3);
+  border: 1px solid var(--unc-blue, #4b9cd3);
   cursor: help;
   user-select: none;
 }
@@ -479,10 +495,9 @@ body {
 .checkbox-row input[type="checkbox"] {
   width: 16px;
   height: 16px;
-  accent-color: var(--unc-blue, #4B9CD3);
+  accent-color: var(--unc-blue, #4b9cd3);
   cursor: pointer;
 }
-
 
 /* ── Theme drawer ──────────────────────────────────────────────────────── */
 .tab-icon {
@@ -574,7 +589,7 @@ body {
 
 .theme-var-name {
   font-size: 12px;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: "SF Mono", "Fira Code", monospace;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -597,7 +612,7 @@ body {
   border-radius: 4px;
   padding: 4px 6px;
   font-size: 11px;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: "SF Mono", "Fira Code", monospace;
   color: var(--text-primary);
   outline: none;
   width: 100%;
@@ -633,7 +648,6 @@ body {
   border-top: 1px solid rgba(122, 162, 247, 0.15);
 }
 
-
 /* ── Theme presets ─────────────────────────────────────────────────────── */
 .theme-presets {
   display: flex;
@@ -656,17 +670,15 @@ body {
   background: rgba(75, 156, 211, 0.22);
 }
 
-
 /* ── Textarea widget ─────────────────────────────────────────────────── */
 .arg-textarea {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: "SF Mono", "Fira Code", monospace;
   font-size: 12px;
   resize: vertical;
   min-height: 100px;
   width: 100%;
   line-height: 1.5;
 }
-
 
 /* ── Bookmark Editor widget ─────────────────────────────────────────────── */
 .bookmark-editor {
@@ -705,7 +717,7 @@ body {
 }
 
 .bookmark-file {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: "SF Mono", "Fira Code", monospace;
   font-size: 12px;
   color: var(--text-primary);
   overflow: hidden;
@@ -719,7 +731,7 @@ body {
   flex: 1;
   min-height: 300px;
   resize: none;
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: "SF Mono", "Fira Code", monospace;
   font-size: 13px;
   line-height: 1.6;
 }
@@ -772,7 +784,10 @@ body {
   border-radius: 12px;
   padding: 28px 24px;
   cursor: pointer;
-  transition: border-color 0.15s, transform 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    transform 0.15s,
+    background 0.15s;
   text-decoration: none;
   color: inherit;
   display: flex;
@@ -820,4 +835,187 @@ body {
 /* Header title link should not underline on hover */
 .tab-bar-title:hover {
   text-decoration: none !important;
+}
+/* ── Vault Workbench ───────────────────────────────────────────────────── */
+.vault-workbench {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  gap: 20px;
+  overflow-y: auto;
+  background: var(--bg-deep);
+}
+
+.vault-header {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 20px;
+  background: var(--bg-card);
+  border-radius: 8px;
+}
+
+.vault-path-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.vault-path-label {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.vault-path {
+  flex: 1;
+  color: var(--text-primary);
+  font-family: monospace;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-status-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.vault-status {
+  font-size: 14px;
+  font-weight: 500;
+  text-transform: capitalize;
+  flex: 1;
+}
+
+.vault-error {
+  color: var(--tokyo-red);
+  font-size: 13px;
+  padding: 8px 12px;
+  background: rgba(247, 118, 142, 0.1);
+  border-radius: 4px;
+}
+
+.vault-body {
+  flex: 1;
+  min-height: 200px;
+}
+
+.vault-metrics {
+  padding: 20px 24px;
+  background: var(--bg-card);
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.vault-metric-row {
+  padding: 4px 0;
+  color: var(--text-muted);
+}
+
+.vault-metric-value {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 16px;
+  margin-right: 8px;
+}
+
+.vault-metrics-heading {
+  color: var(--unc-blue);
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 20px;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.vault-hubs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.vault-hub-row {
+  display: flex;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+.vault-hub-degree {
+  color: var(--unc-blue);
+  font-weight: 600;
+  min-width: 32px;
+  text-align: right;
+}
+
+.vault-hub-title {
+  color: var(--text-primary);
+}
+
+.vault-also {
+  padding: 16px 20px;
+  background: var(--bg-card);
+  border-radius: 8px;
+}
+
+.vault-also-heading {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+.vault-also-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ── Tile fallback (error boundary UI) ─────────────────────────────────── */
+.tile-fallback {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tile-fallback-banner {
+  padding: 12px 20px;
+  background: rgba(247, 118, 142, 0.1);
+  border-bottom: 1px solid rgba(247, 118, 142, 0.3);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.tile-fallback-message {
+  flex: 1;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.tile-fallback-message strong {
+  color: var(--tokyo-red);
+}
+
+.tile-fallback-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.tile-fallback-details {
+  padding: 12px 20px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-family: monospace;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--bg-surface);
 }
