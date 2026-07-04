@@ -8,9 +8,12 @@ const {
   GetGroups,
   RunScript,
   PtyCreate,
+  SaveFile,
+  OpenExternal,
 } = window.electronAPI;
 
 const STORAGE_KEY = "vault-workbench-path";
+const VAULT_NAME_KEY = "vault-workbench-name";
 const DEFAULT_VAULT_PATH =
   "/Users/careycarroll/Library/Mobile Documents/iCloud~md~obsidian/Documents/CAWC Vaulting";
 
@@ -31,12 +34,17 @@ export default function VaultWorkbench() {
   const [vaultPath, setVaultPath] = useState(
     () => localStorage.getItem(STORAGE_KEY) || DEFAULT_VAULT_PATH,
   );
+  const [vaultName, setVaultName] = useState(
+    () => localStorage.getItem(VAULT_NAME_KEY) || "CAWC Vaulting",
+  );
   const [status, setStatus] = useState("stopped");
   const [error, setError] = useState("");
   const [index, setIndex] = useState(null);
   const [busy, setBusy] = useState(false);
   const [alsoInDomain, setAlsoInDomain] = useState([]);
   const [activeTab, setActiveTab] = useState("Overview");
+  const [headerCollapsed, setHeaderCollapsed] = useState(false);
+  const [footerCollapsed, setFooterCollapsed] = useState(false);
 
   useEffect(() => {
     GetGroups().then((groups) => {
@@ -56,6 +64,9 @@ export default function VaultWorkbench() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, vaultPath);
   }, [vaultPath]);
+  useEffect(() => {
+    localStorage.setItem(VAULT_NAME_KEY, vaultName);
+  }, [vaultName]);
   useEffect(
     () => () => {
       VaultStop();
@@ -123,6 +134,107 @@ export default function VaultWorkbench() {
     }
   }
 
+  async function exportJSON() {
+    if (!index) return;
+    await SaveFile({
+      defaultName: "vault-index.json",
+      content: JSON.stringify(index, null, 2),
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+  }
+
+  async function exportGraphML() {
+    if (!index) return;
+    const escape = (s) =>
+      String(s).replace(
+        /[<>&"]/g,
+        (c) =>
+          ({
+            "<": "&lt;",
+            ">": "&gt;",
+            "&": "&amp;",
+            '"': "&quot;",
+          })[c],
+      );
+    const inDegree = new Map();
+    index.edges.forEach((e) =>
+      inDegree.set(e.target, (inDegree.get(e.target) || 0) + 1),
+    );
+
+    const lines = [
+      '<?xml version="1.0" encoding="UTF-8"?>',
+      '<graphml xmlns="http://graphml.graphdrawing.org/xmlns">',
+      '  <key id="title" for="node" attr.name="title" attr.type="string"/>',
+      '  <key id="tags" for="node" attr.name="tags" attr.type="string"/>',
+      '  <key id="in_degree" for="node" attr.name="in_degree" attr.type="int"/>',
+      '  <key id="type" for="edge" attr.name="type" attr.type="string"/>',
+      '  <graph id="vault" edgedefault="directed">',
+    ];
+    index.notes.forEach((n) => {
+      lines.push(`    <node id="${escape(n.title)}">`);
+      lines.push(`      <data key="title">${escape(n.title)}</data>`);
+      lines.push(
+        `      <data key="tags">${escape((n.tags || []).join(","))}</data>`,
+      );
+      lines.push(
+        `      <data key="in_degree">${inDegree.get(n.title) || 0}</data>`,
+      );
+      lines.push(`    </node>`);
+    });
+    index.edges.forEach((e, i) => {
+      lines.push(
+        `    <edge id="e${i}" source="${escape(e.source)}" target="${escape(e.target)}">`,
+      );
+      lines.push(`      <data key="type">${escape(e.type)}</data>`);
+      lines.push(`    </edge>`);
+    });
+    lines.push("  </graph>");
+    lines.push("</graphml>");
+
+    await SaveFile({
+      defaultName: "vault-graph.graphml",
+      content: lines.join("\n"),
+      filters: [{ name: "GraphML", extensions: ["graphml"] }],
+    });
+  }
+
+  async function exportMermaid() {
+    if (!index) return;
+    const inDegree = new Map();
+    index.edges.forEach((e) =>
+      inDegree.set(e.target, (inDegree.get(e.target) || 0) + 1),
+    );
+    const topEdges = [...index.edges]
+      .sort(
+        (a, b) => (inDegree.get(b.target) || 0) - (inDegree.get(a.target) || 0),
+      )
+      .slice(0, 500);
+    const sanitize = (s) =>
+      String(s)
+        .replace(/[^a-zA-Z0-9]/g, "_")
+        .slice(0, 40);
+    const seen = new Set();
+    const lines = ["graph LR"];
+    topEdges.forEach((e) => {
+      const s = sanitize(e.source);
+      const t = sanitize(e.target);
+      if (!seen.has(s)) {
+        lines.push(`  ${s}["${e.source.replace(/"/g, "'")}"]`);
+        seen.add(s);
+      }
+      if (!seen.has(t)) {
+        lines.push(`  ${t}["${e.target.replace(/"/g, "'")}"]`);
+        seen.add(t);
+      }
+      lines.push(`  ${s} --> ${t}`);
+    });
+    await SaveFile({
+      defaultName: "vault-graph.mmd",
+      content: lines.join("\n"),
+      filters: [{ name: "Mermaid", extensions: ["mmd", "md"] }],
+    });
+  }
+
   const statusDot = { stopped: "●", starting: "⟳", running: "●", error: "✗" }[
     status
   ];
@@ -135,45 +247,89 @@ export default function VaultWorkbench() {
 
   return (
     <div className="vault-workbench">
-      <div className="vault-header">
-        <div className="vault-path-row">
-          <span className="vault-path-label">Vault:</span>
-          <span className="vault-path" title={vaultPath}>
-            {vaultPath}
-          </span>
-          <button
-            className="btn-secondary"
-            onClick={pickPath}
-            disabled={status !== "stopped"}
+      <div className={`vault-header ${headerCollapsed ? "collapsed" : ""}`}>
+        <button
+          className="vault-collapse-toggle"
+          onClick={() => setHeaderCollapsed((c) => !c)}
+          title={headerCollapsed ? "Expand header" : "Collapse header"}
+        >
+          {headerCollapsed ? "▾" : "▴"}
+        </button>
+        {!headerCollapsed && (
+          <>
+            <div className="vault-path-row">
+              <span className="vault-path-label">Vault:</span>
+              <span className="vault-path" title={vaultPath}>
+                {vaultPath}
+              </span>
+              <button
+                className="btn-secondary"
+                onClick={pickPath}
+                disabled={status !== "stopped"}
+              >
+                Change
+              </button>
+            </div>
+            <div className="vault-status-row">
+              <span className="vault-status" style={{ color: statusColor }}>
+                {statusDot} {status}
+              </span>
+              {status === "stopped" && (
+                <button
+                  className="btn-run"
+                  onClick={start}
+                  disabled={busy || !vaultPath}
+                >
+                  Start
+                </button>
+              )}
+              {status === "running" && (
+                <>
+                  <button className="btn-run" onClick={reindex} disabled={busy}>
+                    {busy ? "Working…" : "Reindex"}
+                  </button>
+                  <button
+                    className="btn-secondary"
+                    onClick={stop}
+                    disabled={busy}
+                  >
+                    Stop
+                  </button>
+                </>
+              )}
+            </div>
+            {error && <div className="vault-error">{error}</div>}
+            {index && (
+              <div className="vault-export-row">
+                <span className="vault-export-label">Export:</span>
+                <button className="btn-secondary" onClick={exportJSON}>
+                  JSON
+                </button>
+                <button className="btn-secondary" onClick={exportGraphML}>
+                  GraphML
+                </button>
+                <button className="btn-secondary" onClick={exportMermaid}>
+                  Mermaid
+                </button>
+                <span className="vault-name-label">Obsidian vault name:</span>
+                <input
+                  className="vault-name-input"
+                  value={vaultName}
+                  onChange={(e) => setVaultName(e.target.value)}
+                  disabled={status !== "stopped"}
+                />
+              </div>
+            )}
+          </>
+        )}
+        {headerCollapsed && (
+          <span
+            className="vault-collapse-summary"
+            style={{ color: statusColor }}
           >
-            Change
-          </button>
-        </div>
-        <div className="vault-status-row">
-          <span className="vault-status" style={{ color: statusColor }}>
-            {statusDot} {status}
+            {statusDot} {status} · {vaultPath.split("/").pop()}
           </span>
-          {status === "stopped" && (
-            <button
-              className="btn-run"
-              onClick={start}
-              disabled={busy || !vaultPath}
-            >
-              Start
-            </button>
-          )}
-          {status === "running" && (
-            <>
-              <button className="btn-run" onClick={reindex} disabled={busy}>
-                {busy ? "Working…" : "Reindex"}
-              </button>
-              <button className="btn-secondary" onClick={stop} disabled={busy}>
-                Stop
-              </button>
-            </>
-          )}
-        </div>
-        {error && <div className="vault-error">{error}</div>}
+        )}
       </div>
 
       {!index && status !== "running" && (
@@ -204,7 +360,9 @@ export default function VaultWorkbench() {
 
           <div className="vault-tab-body">
             {activeTab === "Overview" && <OverviewTab index={index} />}
-            {activeTab === "Graph" && <GraphTab index={index} />}
+            {activeTab === "Graph" && (
+              <GraphTab index={index} vaultName={vaultName} />
+            )}
             {activeTab === "Orphans" && <OrphansTab index={index} />}
             {activeTab === "Broken Links" && <BrokenLinksTab index={index} />}
             {activeTab === "Tags" && <TagsTab index={index} />}
@@ -215,19 +373,35 @@ export default function VaultWorkbench() {
       )}
 
       {alsoInDomain.length > 0 && (
-        <div className="vault-also">
-          <div className="vault-also-heading">Also in Vault</div>
-          <div className="vault-also-list">
-            {alsoInDomain.map((entry) => (
-              <button
-                key={entry.name}
-                className="btn-secondary"
-                onClick={() => runAlsoInDomain(entry)}
-              >
-                {entry.name}
-              </button>
-            ))}
-          </div>
+        <div className={`vault-also ${footerCollapsed ? "collapsed" : ""}`}>
+          <button
+            className="vault-collapse-toggle"
+            onClick={() => setFooterCollapsed((c) => !c)}
+            title={footerCollapsed ? "Expand footer" : "Collapse footer"}
+          >
+            {footerCollapsed ? "▴" : "▾"}
+          </button>
+          {!footerCollapsed && (
+            <>
+              <div className="vault-also-heading">Also in Vault</div>
+              <div className="vault-also-list">
+                {alsoInDomain.map((entry) => (
+                  <button
+                    key={entry.name}
+                    className="btn-secondary"
+                    onClick={() => runAlsoInDomain(entry)}
+                  >
+                    {entry.name}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          {footerCollapsed && (
+            <span className="vault-collapse-summary">
+              Also in Vault ({alsoInDomain.length})
+            </span>
+          )}
         </div>
       )}
     </div>
@@ -295,13 +469,14 @@ function OverviewTab({ index }) {
 }
 
 // ── Graph ──
-function GraphTab({ index }) {
+function GraphTab({ index, vaultName }) {
   const containerRef = useRef(null);
   const graphRef = useRef(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
-  const [selectedNode, setSelectedNode] = useState(null);
+  const [selectedTitle, setSelectedTitle] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterPreset, setFilterPreset] = useState("all");
 
-  // Track container size for responsive canvas
   useEffect(() => {
     if (!containerRef.current) return;
     const observer = new ResizeObserver((entries) => {
@@ -314,15 +489,11 @@ function GraphTab({ index }) {
     return () => observer.disconnect();
   }, []);
 
-  // Compute graph data once per index change. Memoized to avoid rebuilding
-  // on every render (which would reset the simulation).
   const graphData = useMemo(() => {
-    // Real in-degree from edges (index.hubs is top-20 only).
     const inDegree = new Map();
     index.edges.forEach((e) => {
       inDegree.set(e.target, (inDegree.get(e.target) || 0) + 1);
     });
-
     const nodes = index.notes.map((n) => ({
       id: n.title,
       title: n.title,
@@ -330,24 +501,89 @@ function GraphTab({ index }) {
       rel_path: n.rel_path,
       in_degree: inDegree.get(n.title) || 0,
     }));
-
     const links = index.edges.map((e) => ({
       source: e.source,
       target: e.target,
       type: e.type,
     }));
-
     return { nodes, links };
   }, [index]);
 
+  const nodeById = useMemo(() => {
+    const m = new Map();
+    graphData.nodes.forEach((n) => m.set(n.id, n));
+    return m;
+  }, [graphData]);
+
+  const brokenLinkSources = useMemo(() => {
+    const s = new Set();
+    index.broken_links.forEach((l) => s.add(l.source));
+    return s;
+  }, [index]);
+
+  function matchesFilter(node) {
+    if (filterPreset === "hubs" && node.in_degree < 5) return false;
+    if (filterPreset === "orphans" && node.in_degree > 0) return false;
+    if (filterPreset === "broken-source" && !brokenLinkSources.has(node.title))
+      return false;
+    if (filterPreset === "has-tags" && (!node.tags || node.tags.length === 0))
+      return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const inTitle = node.title.toLowerCase().includes(q);
+      const inTags = (node.tags || []).some((t) => t.toLowerCase().includes(q));
+      if (!inTitle && !inTags) return false;
+    }
+    return true;
+  }
+
+  const selectedNode = selectedTitle ? nodeById.get(selectedTitle) : null;
+
   const nodeColor = (n) => {
-    if (selectedNode && selectedNode.id === n.id) return "#ff9e64"; // orange for selected
-    if (n.in_degree === 0) return "#8899b4"; // muted for orphans/leaves
-    return "#4B9CD3"; // Carolina Blue default
+    const matches = matchesFilter(n);
+    if (selectedTitle && n.id === selectedTitle)
+      return matches ? "#ff9e64" : "rgba(255, 158, 100, 0.3)";
+    if (!matches) return "rgba(75, 156, 211, 0.15)";
+    if (n.in_degree === 0) return "#8899b4";
+    return "#4B9CD3";
   };
+
+  function focusNode(title) {
+    setSelectedTitle(title);
+    const node = nodeById.get(title);
+    if (node && graphRef.current && node.x != null && node.y != null) {
+      graphRef.current.centerAt(node.x, node.y, 500);
+      graphRef.current.zoom(3, 500);
+    }
+  }
 
   return (
     <div ref={containerRef} className="vault-graph-container">
+      <div className="vault-graph-controls">
+        <input
+          className="vault-graph-search"
+          placeholder="Search title or tag…"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+        <div className="vault-graph-presets">
+          {[
+            ["all", "All"],
+            ["hubs", "Hubs (5+)"],
+            ["orphans", "Orphans"],
+            ["broken-source", "Has broken"],
+            ["has-tags", "Has tags"],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              className={`vault-preset ${filterPreset === key ? "active" : ""}`}
+              onClick={() => setFilterPreset(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
       <ForceGraph2D
         ref={graphRef}
         graphData={graphData}
@@ -360,35 +596,13 @@ function GraphTab({ index }) {
         nodeRelSize={4}
         linkColor={() => "rgba(122, 162, 247, 0.25)"}
         linkWidth={0.5}
-        linkDirectionalParticles={0}
-        onNodeClick={(n) => setSelectedNode(n)}
-        onBackgroundClick={() => setSelectedNode(null)}
+        onNodeClick={(n) => setSelectedTitle(n.id)}
+        onBackgroundClick={() => setSelectedTitle(null)}
         cooldownTicks={200}
         warmupTicks={100}
         d3AlphaDecay={0.02}
         d3VelocityDecay={0.4}
       />
-      {selectedNode && (
-        <div className="vault-graph-selected">
-          <div className="vault-graph-selected-title">{selectedNode.title}</div>
-          <div className="vault-graph-selected-meta">
-            {selectedNode.in_degree} incoming link
-            {selectedNode.in_degree === 1 ? "" : "s"}
-          </div>
-          {selectedNode.tags?.length > 0 && (
-            <div className="vault-graph-selected-tags">
-              {selectedNode.tags.map((t) => (
-                <span key={t} className="vault-graph-selected-tag">
-                  {t}
-                </span>
-              ))}
-            </div>
-          )}
-          <div className="vault-graph-selected-path">
-            {selectedNode.rel_path}
-          </div>
-        </div>
-      )}
       <div className="vault-graph-legend">
         <div>
           <span
@@ -412,7 +626,203 @@ function GraphTab({ index }) {
           selected
         </div>
       </div>
+      {selectedNode && (
+        <NoteSidePanel
+          index={index}
+          selectedNode={selectedNode}
+          onClose={() => setSelectedTitle(null)}
+          onNavigate={focusNode}
+          vaultName={vaultName}
+        />
+      )}
     </div>
+  );
+}
+
+// ── Side panel ──
+function NoteSidePanel({
+  index,
+  selectedNode,
+  onClose,
+  onNavigate,
+  vaultName,
+}) {
+  const [noteData, setNoteData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [noteError, setNoteError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setNoteError("");
+    setNoteData(null);
+    VaultQuery({
+      id: nextId(),
+      method: "get_note",
+      params: { title: selectedNode.title },
+    })
+      .then((res) => {
+        if (!cancelled) setNoteData(res);
+      })
+      .catch((err) => {
+        if (!cancelled) setNoteError(String(err?.message || err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedNode.title]);
+
+  const backlinks = useMemo(() => {
+    const set = new Set();
+    index.edges.forEach((e) => {
+      if (e.target === selectedNode.title) set.add(e.source);
+    });
+    return Array.from(set).sort();
+  }, [index, selectedNode.title]);
+
+  const forwardLinks = useMemo(() => {
+    const set = new Set();
+    index.edges.forEach((e) => {
+      if (e.source === selectedNode.title) set.add(e.target);
+    });
+    return Array.from(set).sort();
+  }, [index, selectedNode.title]);
+
+  const similarByTags = useMemo(() => {
+    if (!selectedNode.tags || selectedNode.tags.length === 0) return [];
+    const selectedTags = new Set(selectedNode.tags);
+    const overlaps = index.notes
+      .filter((n) => n.title !== selectedNode.title && n.tags?.length > 0)
+      .map((n) => {
+        const shared = n.tags.filter((t) => selectedTags.has(t));
+        return { title: n.title, shared_count: shared.length, shared };
+      })
+      .filter((x) => x.shared_count > 0)
+      .sort((a, b) => b.shared_count - a.shared_count)
+      .slice(0, 20);
+    return overlaps;
+  }, [index, selectedNode.title, selectedNode.tags]);
+
+  async function openInObsidian() {
+    const uri = `obsidian://open?vault=${encodeURIComponent(vaultName)}&file=${encodeURIComponent(selectedNode.title)}`;
+    await OpenExternal(uri);
+  }
+
+  return (
+    <aside className="vault-side-panel">
+      <div className="vault-side-header">
+        <div className="vault-side-title">{selectedNode.title}</div>
+        <button className="vault-side-close" onClick={onClose}>
+          ✕
+        </button>
+      </div>
+      <button className="vault-side-obsidian" onClick={openInObsidian}>
+        Open in Obsidian ↗
+      </button>
+      <div className="vault-side-meta">
+        <span>
+          {backlinks.length} backlink{backlinks.length === 1 ? "" : "s"}
+        </span>
+        <span>·</span>
+        <span>{forwardLinks.length} forward</span>
+        <span>·</span>
+        <span>
+          {selectedNode.tags?.length || 0} tag
+          {selectedNode.tags?.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      {selectedNode.tags?.length > 0 && (
+        <div className="vault-side-tags">
+          {selectedNode.tags.map((t) => (
+            <span key={t} className="vault-side-tag">
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="vault-side-path">{selectedNode.rel_path}</div>
+
+      <div className="vault-side-section">
+        <div className="vault-side-section-heading">Content</div>
+        <div className="vault-side-content">
+          {loading && <div className="vault-side-loading">Loading…</div>}
+          {noteError && (
+            <div className="vault-side-error">Failed to load: {noteError}</div>
+          )}
+          {noteData && <pre className="vault-side-body">{noteData.body}</pre>}
+        </div>
+      </div>
+
+      <div className="vault-side-section">
+        <div className="vault-side-section-heading">
+          Backlinks <span className="vault-side-count">{backlinks.length}</span>
+        </div>
+        <div className="vault-side-list">
+          {backlinks.map((t) => (
+            <button
+              key={t}
+              className="vault-side-link"
+              onClick={() => onNavigate(t)}
+            >
+              {t}
+            </button>
+          ))}
+          {backlinks.length === 0 && (
+            <div className="vault-side-empty">No backlinks.</div>
+          )}
+        </div>
+      </div>
+
+      <div className="vault-side-section">
+        <div className="vault-side-section-heading">
+          Forward links{" "}
+          <span className="vault-side-count">{forwardLinks.length}</span>
+        </div>
+        <div className="vault-side-list">
+          {forwardLinks.map((t) => (
+            <button
+              key={t}
+              className="vault-side-link"
+              onClick={() => onNavigate(t)}
+            >
+              {t}
+            </button>
+          ))}
+          {forwardLinks.length === 0 && (
+            <div className="vault-side-empty">No forward links.</div>
+          )}
+        </div>
+      </div>
+
+      <div className="vault-side-section">
+        <div className="vault-side-section-heading">
+          Similar by tags{" "}
+          <span className="vault-side-count">{similarByTags.length}</span>
+        </div>
+        <div className="vault-side-list">
+          {similarByTags.map((s) => (
+            <button
+              key={s.title}
+              className="vault-side-link"
+              onClick={() => onNavigate(s.title)}
+            >
+              <span className="vault-side-link-title">{s.title}</span>
+              <span className="vault-side-link-badge">{s.shared_count}</span>
+            </button>
+          ))}
+          {similarByTags.length === 0 && (
+            <div className="vault-side-empty">
+              {selectedNode.tags?.length
+                ? "No notes share any tags."
+                : "No tags on this note."}
+            </div>
+          )}
+        </div>
+      </div>
+    </aside>
   );
 }
 
