@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
+import ForceGraph2D from "react-force-graph-2d";
 const {
   VaultStart,
   VaultQuery,
@@ -18,6 +19,7 @@ const nextId = () => `r${++reqCounter}`;
 
 const TABS = [
   "Overview",
+  "Graph",
   "Orphans",
   "Broken Links",
   "Tags",
@@ -31,7 +33,7 @@ export default function VaultWorkbench() {
   );
   const [status, setStatus] = useState("stopped");
   const [error, setError] = useState("");
-  const [index, setIndex] = useState(null); // full get_index result
+  const [index, setIndex] = useState(null);
   const [busy, setBusy] = useState(false);
   const [alsoInDomain, setAlsoInDomain] = useState([]);
   const [activeTab, setActiveTab] = useState("Overview");
@@ -54,7 +56,6 @@ export default function VaultWorkbench() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, vaultPath);
   }, [vaultPath]);
-
   useEffect(
     () => () => {
       VaultStop();
@@ -87,9 +88,7 @@ export default function VaultWorkbench() {
     setBusy(true);
     try {
       await VaultStop();
-    } catch {
-      /* ignore */
-    }
+    } catch {}
     setStatus("stopped");
     setIndex(null);
     setBusy(false);
@@ -205,6 +204,7 @@ export default function VaultWorkbench() {
 
           <div className="vault-tab-body">
             {activeTab === "Overview" && <OverviewTab index={index} />}
+            {activeTab === "Graph" && <GraphTab index={index} />}
             {activeTab === "Orphans" && <OrphansTab index={index} />}
             {activeTab === "Broken Links" && <BrokenLinksTab index={index} />}
             {activeTab === "Tags" && <TagsTab index={index} />}
@@ -238,6 +238,8 @@ function tabCount(tab, idx) {
   switch (tab) {
     case "Overview":
       return idx.note_count;
+    case "Graph":
+      return idx.note_count;
     case "Orphans":
       return idx.orphans.length;
     case "Broken Links":
@@ -253,7 +255,7 @@ function tabCount(tab, idx) {
   }
 }
 
-// ── Tabs ────────────────────────────────────────────────────────────────────
+// ── Overview ──
 function OverviewTab({ index }) {
   return (
     <div className="vault-metrics">
@@ -292,6 +294,129 @@ function OverviewTab({ index }) {
   );
 }
 
+// ── Graph ──
+function GraphTab({ index }) {
+  const containerRef = useRef(null);
+  const graphRef = useRef(null);
+  const [size, setSize] = useState({ width: 800, height: 600 });
+  const [selectedNode, setSelectedNode] = useState(null);
+
+  // Track container size for responsive canvas
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        setSize({ width: Math.max(200, width), height: Math.max(300, height) });
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  // Compute graph data once per index change. Memoized to avoid rebuilding
+  // on every render (which would reset the simulation).
+  const graphData = useMemo(() => {
+    // Real in-degree from edges (index.hubs is top-20 only).
+    const inDegree = new Map();
+    index.edges.forEach((e) => {
+      inDegree.set(e.target, (inDegree.get(e.target) || 0) + 1);
+    });
+
+    const nodes = index.notes.map((n) => ({
+      id: n.title,
+      title: n.title,
+      tags: n.tags,
+      rel_path: n.rel_path,
+      in_degree: inDegree.get(n.title) || 0,
+    }));
+
+    const links = index.edges.map((e) => ({
+      source: e.source,
+      target: e.target,
+      type: e.type,
+    }));
+
+    return { nodes, links };
+  }, [index]);
+
+  const nodeColor = (n) => {
+    if (selectedNode && selectedNode.id === n.id) return "#ff9e64"; // orange for selected
+    if (n.in_degree === 0) return "#8899b4"; // muted for orphans/leaves
+    return "#4B9CD3"; // Carolina Blue default
+  };
+
+  return (
+    <div ref={containerRef} className="vault-graph-container">
+      <ForceGraph2D
+        ref={graphRef}
+        graphData={graphData}
+        width={size.width}
+        height={size.height}
+        backgroundColor="#0d1117"
+        nodeLabel={(n) => `${n.title} (${n.in_degree} in)`}
+        nodeVal={(n) => Math.max(0.5, Math.sqrt(n.in_degree + 1))}
+        nodeColor={nodeColor}
+        nodeRelSize={4}
+        linkColor={() => "rgba(122, 162, 247, 0.25)"}
+        linkWidth={0.5}
+        linkDirectionalParticles={0}
+        onNodeClick={(n) => setSelectedNode(n)}
+        onBackgroundClick={() => setSelectedNode(null)}
+        cooldownTicks={200}
+        warmupTicks={100}
+        d3AlphaDecay={0.02}
+        d3VelocityDecay={0.4}
+      />
+      {selectedNode && (
+        <div className="vault-graph-selected">
+          <div className="vault-graph-selected-title">{selectedNode.title}</div>
+          <div className="vault-graph-selected-meta">
+            {selectedNode.in_degree} incoming link
+            {selectedNode.in_degree === 1 ? "" : "s"}
+          </div>
+          {selectedNode.tags?.length > 0 && (
+            <div className="vault-graph-selected-tags">
+              {selectedNode.tags.map((t) => (
+                <span key={t} className="vault-graph-selected-tag">
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="vault-graph-selected-path">
+            {selectedNode.rel_path}
+          </div>
+        </div>
+      )}
+      <div className="vault-graph-legend">
+        <div>
+          <span
+            className="vault-graph-swatch"
+            style={{ background: "#4B9CD3" }}
+          />{" "}
+          connected
+        </div>
+        <div>
+          <span
+            className="vault-graph-swatch"
+            style={{ background: "#8899b4" }}
+          />{" "}
+          orphan / no incoming
+        </div>
+        <div>
+          <span
+            className="vault-graph-swatch"
+            style={{ background: "#ff9e64" }}
+          />{" "}
+          selected
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Orphans ──
 function OrphansTab({ index }) {
   const [query, setQuery] = useState("");
   const filtered = index.orphans.filter(
@@ -324,6 +449,7 @@ function OrphansTab({ index }) {
   );
 }
 
+// ── Broken Links ──
 function BrokenLinksTab({ index }) {
   const [query, setQuery] = useState("");
   const filtered = index.broken_links.filter(
@@ -364,6 +490,7 @@ function BrokenLinksTab({ index }) {
   );
 }
 
+// ── Tags ──
 function TagsTab({ index }) {
   const [query, setQuery] = useState("");
   const entries = Object.entries(index.tag_counts);
@@ -405,6 +532,7 @@ function TagsTab({ index }) {
   );
 }
 
+// ── Duplicates ──
 function DuplicatesTab({ index }) {
   return (
     <div className="vault-list-panel">
@@ -427,8 +555,8 @@ function DuplicatesTab({ index }) {
   );
 }
 
+// ── Components ──
 function ComponentsTab({ index }) {
-  // Group by size for compact display.
   const bySize = index.components.reduce((acc, size) => {
     acc[size] = (acc[size] || 0) + 1;
     return acc;
