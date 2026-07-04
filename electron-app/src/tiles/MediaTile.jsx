@@ -1,4 +1,13 @@
-import RegistryTile from "../RegistryTile";
+import TileWithFallback from "./TileWithFallback";
+import PanoptoDownloader from "./PanoptoDownloader";
+
 export default function MediaTile() {
-  return <RegistryTile domain="media" title="Media" />;
+  return (
+    <TileWithFallback
+      domain="media"
+      title="Media"
+      componentName="Panopto Downloader"
+      BespokeComponent={PanoptoDownloader}
+    />
+  );
 }

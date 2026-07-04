@@ -339,6 +339,31 @@ ipcMain.handle("analyze-bookmarks", (_event, pdfPath: string) => {
   });
 });
 
+// ── Save file (used by Vault exports) ────────────────────────────────
+ipcMain.handle(
+  "save-file",
+  async (
+    event,
+    opts: { defaultName: string; content: string; filters?: any[] },
+  ) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const result = await dialog.showSaveDialog(win, {
+      defaultPath: opts.defaultName,
+      filters: opts.filters || [],
+    });
+    if (result.canceled || !result.filePath) return { saved: false };
+    fs.writeFileSync(result.filePath, opts.content, "utf-8");
+    return { saved: true, path: result.filePath };
+  },
+);
+
+// ── Open external URL (obsidian://, https://, etc.) ──────────────────
+ipcMain.handle("open-external", async (_e, url: string) => {
+  const { shell } = await import("electron");
+  await shell.openExternal(url);
+  return { opened: true };
+});
+
 // ── Vault Workbench IPC ────────────────────────────────────────────────
 // Long-lived vault_index.py --serve process. One per app lifetime.
 // Requests are matched to responses by 'id' echoed back in the JSON.
@@ -363,7 +388,10 @@ ipcMain.handle("vault-start", async (_e, vaultPath: string) => {
   if (vaultProc) killVaultProc();
 
   const pythonPath = bundledPython; // reuse your existing helper
-  const scriptPath = path.join(bundledResources, "python/scripts/vault_index.py");
+  const scriptPath = path.join(
+    bundledResources,
+    "python/scripts/vault_index.py",
+  );
 
   vaultProc = spawn(pythonPath, [scriptPath, vaultPath, "--serve"], {
     stdio: ["pipe", "pipe", "pipe"],
@@ -431,6 +459,74 @@ ipcMain.handle("vault-stop", async () => {
   killVaultProc();
   return { stopped: true };
 });
+
+// ── Streaming subprocess (used by Panopto downloader; reusable) ────────
+// Spawns a Python script that emits line-delimited JSON on stdout.
+// Emits every parsed line as a 'stream-line' event to the renderer.
+// Renderer can send input via 'stream-input' (for conflict resolution etc).
+let streamProc: ChildProcess | null = null;
+
+function killStreamProc() {
+  if (streamProc) {
+    streamProc.kill();
+    streamProc = null;
+  }
+}
+
+ipcMain.handle(
+  "stream-start",
+  async (event, opts: { script: string; args: string[] }) => {
+    if (streamProc) killStreamProc();
+
+    const scriptPath = path.join(bundledResources, opts.script);
+    streamProc = spawn(bundledPython, [scriptPath, ...opts.args], {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    const win = BrowserWindow.fromWebContents(event.sender);
+    let buffer = "";
+
+    streamProc.stdout?.on("data", (chunk: Buffer) => {
+      buffer += chunk.toString("utf8");
+      let idx: number;
+      while ((idx = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+        if (!line) continue;
+        try {
+          const msg = JSON.parse(line);
+          win?.webContents.send("stream-line", msg);
+        } catch {
+          // ignore
+        }
+      }
+    });
+
+    streamProc.stderr?.on("data", (chunk: Buffer) => {
+      process.stderr.write(`[stream] ${chunk.toString("utf8")}`);
+    });
+
+    streamProc.on("exit", (code) => {
+      win?.webContents.send("stream-exit", { code });
+      streamProc = null;
+    });
+
+    return { started: true };
+  },
+);
+
+ipcMain.handle("stream-input", async (_e, data: any) => {
+  if (!streamProc || !streamProc.stdin) return { sent: false };
+  streamProc.stdin.write(JSON.stringify(data) + "\n");
+  return { sent: true };
+});
+
+ipcMain.handle("stream-stop", async () => {
+  killStreamProc();
+  return { stopped: true };
+});
+
+app.on("before-quit", killStreamProc);
 
 // Kill vault proc when app quits.
 app.on("before-quit", killVaultProc);
