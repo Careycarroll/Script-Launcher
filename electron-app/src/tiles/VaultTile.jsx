@@ -1,4 +1,13 @@
-import RegistryTile from "../RegistryTile";
+import TileWithFallback from "./TileWithFallback";
+import VaultWorkbench from "./VaultWorkbench";
+
 export default function VaultTile() {
-  return <RegistryTile domain="vault" title="Vault" />;
+  return (
+    <TileWithFallback
+      domain="vault"
+      title="Vault"
+      componentName="Vault Workbench"
+      BespokeComponent={VaultWorkbench}
+    />
+  );
 }
