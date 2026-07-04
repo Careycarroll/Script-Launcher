@@ -13,29 +13,35 @@ const STORAGE_KEY = "vault-workbench-path";
 const DEFAULT_VAULT_PATH =
   "/Users/careycarroll/Library/Mobile Documents/iCloud~md~obsidian/Documents/CAWC Vaulting";
 
-// Monotonically increasing request id for JSON protocol matching.
 let reqCounter = 0;
 const nextId = () => `r${++reqCounter}`;
+
+const TABS = [
+  "Overview",
+  "Orphans",
+  "Broken Links",
+  "Tags",
+  "Duplicates",
+  "Components",
+];
 
 export default function VaultWorkbench() {
   const [vaultPath, setVaultPath] = useState(
     () => localStorage.getItem(STORAGE_KEY) || DEFAULT_VAULT_PATH,
   );
-  const [status, setStatus] = useState("stopped"); // stopped | starting | running | error
+  const [status, setStatus] = useState("stopped");
   const [error, setError] = useState("");
-  const [summary, setSummary] = useState(null);
-  const [hubs, setHubs] = useState([]);
+  const [index, setIndex] = useState(null); // full get_index result
   const [busy, setBusy] = useState(false);
   const [alsoInDomain, setAlsoInDomain] = useState([]);
+  const [activeTab, setActiveTab] = useState("Overview");
 
-  // Load registry entries for the vault domain (for the "Also in Vault" list).
   useEffect(() => {
     GetGroups().then((groups) => {
       const flat = [];
       groups.forEach((group, gi) => {
         (group.scripts || []).forEach((s, si) => {
           const d = s.domain || "documents";
-          // Skip self-referential Vault Workbench entries if any.
           if (d === "vault" && s.component !== "VaultWorkbench") {
             flat.push({ ...s, groupIdx: gi, scriptIdx: si });
           }
@@ -45,12 +51,10 @@ export default function VaultWorkbench() {
     });
   }, []);
 
-  // Persist vault path.
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, vaultPath);
   }, [vaultPath]);
 
-  // Kill server on unmount.
   useEffect(
     () => () => {
       VaultStop();
@@ -87,8 +91,7 @@ export default function VaultWorkbench() {
       /* ignore */
     }
     setStatus("stopped");
-    setSummary(null);
-    setHubs([]);
+    setIndex(null);
     setBusy(false);
   }
 
@@ -97,19 +100,13 @@ export default function VaultWorkbench() {
     setBusy(true);
     setError("");
     try {
-      const reindexRes = await VaultQuery({
-        id: nextId(),
-        method: "reindex",
-        params: {},
-      });
-      setSummary(reindexRes);
-      // Follow up with get_index to grab hubs (reindex only returns summary counts).
+      await VaultQuery({ id: nextId(), method: "reindex", params: {} });
       const idx = await VaultQuery({
         id: nextId(),
         method: "get_index",
         params: {},
       });
-      setHubs(idx.hubs || []);
+      setIndex(idx);
     } catch (e) {
       setError(String(e?.message || e));
     } finally {
@@ -127,12 +124,9 @@ export default function VaultWorkbench() {
     }
   }
 
-  const statusDot = {
-    stopped: "●",
-    starting: "⟳",
-    running: "●",
-    error: "✗",
-  }[status];
+  const statusDot = { stopped: "●", starting: "⟳", running: "●", error: "✗" }[
+    status
+  ];
   const statusColor = {
     stopped: "var(--text-muted)",
     starting: "var(--tokyo-orange)",
@@ -183,59 +177,42 @@ export default function VaultWorkbench() {
         {error && <div className="vault-error">{error}</div>}
       </div>
 
-      <div className="vault-body">
-        {!summary && status !== "running" && (
-          <div className="empty-state">
-            Click Start, then Reindex to build the vault index.
+      {!index && status !== "running" && (
+        <div className="vault-empty">
+          Click Start, then Reindex to build the vault index.
+        </div>
+      )}
+      {!index && status === "running" && (
+        <div className="vault-empty">
+          Server started. Click Reindex to build the vault index.
+        </div>
+      )}
+
+      {index && (
+        <>
+          <div className="vault-tabs">
+            {TABS.map((tab) => (
+              <button
+                key={tab}
+                className={`vault-tab ${activeTab === tab ? "active" : ""}`}
+                onClick={() => setActiveTab(tab)}
+              >
+                {tab}
+                <span className="vault-tab-count">{tabCount(tab, index)}</span>
+              </button>
+            ))}
           </div>
-        )}
-        {!summary && status === "running" && (
-          <div className="empty-state">
-            Server started. Click Reindex to build the vault index.
+
+          <div className="vault-tab-body">
+            {activeTab === "Overview" && <OverviewTab index={index} />}
+            {activeTab === "Orphans" && <OrphansTab index={index} />}
+            {activeTab === "Broken Links" && <BrokenLinksTab index={index} />}
+            {activeTab === "Tags" && <TagsTab index={index} />}
+            {activeTab === "Duplicates" && <DuplicatesTab index={index} />}
+            {activeTab === "Components" && <ComponentsTab index={index} />}
           </div>
-        )}
-        {summary && (
-          <div className="vault-metrics">
-            <div className="vault-metric-row">
-              <span className="vault-metric-value">{summary.note_count}</span>{" "}
-              notes
-            </div>
-            <div className="vault-metric-row">
-              <span className="vault-metric-value">{summary.edge_count}</span>{" "}
-              edges
-            </div>
-            <div className="vault-metric-row">
-              <span className="vault-metric-value">
-                {summary.broken_link_count}
-              </span>{" "}
-              broken links
-            </div>
-            <div className="vault-metric-row">
-              <span className="vault-metric-value">{summary.orphan_count}</span>{" "}
-              orphans
-            </div>
-            <div className="vault-metric-row">
-              <span className="vault-metric-value">
-                {summary.component_count}
-              </span>{" "}
-              components
-            </div>
-            {hubs.length > 0 && (
-              <>
-                <div className="vault-metrics-heading">Top hubs</div>
-                <div className="vault-hubs">
-                  {hubs.slice(0, 10).map((h) => (
-                    <div key={h.title} className="vault-hub-row">
-                      <span className="vault-hub-degree">{h.in_degree}</span>
-                      <span className="vault-hub-title">{h.title}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </div>
+        </>
+      )}
 
       {alsoInDomain.length > 0 && (
         <div className="vault-also">
@@ -253,6 +230,224 @@ export default function VaultWorkbench() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function tabCount(tab, idx) {
+  switch (tab) {
+    case "Overview":
+      return idx.note_count;
+    case "Orphans":
+      return idx.orphans.length;
+    case "Broken Links":
+      return idx.broken_links.length;
+    case "Tags":
+      return Object.keys(idx.tag_counts).length;
+    case "Duplicates":
+      return idx.duplicate_titles.length;
+    case "Components":
+      return idx.components.length;
+    default:
+      return "";
+  }
+}
+
+// ── Tabs ────────────────────────────────────────────────────────────────────
+function OverviewTab({ index }) {
+  return (
+    <div className="vault-metrics">
+      <div className="vault-metric-row">
+        <span className="vault-metric-value">{index.note_count}</span> notes
+      </div>
+      <div className="vault-metric-row">
+        <span className="vault-metric-value">{index.edges.length}</span> edges
+      </div>
+      <div className="vault-metric-row">
+        <span className="vault-metric-value">{index.broken_links.length}</span>{" "}
+        broken links
+      </div>
+      <div className="vault-metric-row">
+        <span className="vault-metric-value">{index.orphans.length}</span>{" "}
+        orphans
+      </div>
+      <div className="vault-metric-row">
+        <span className="vault-metric-value">{index.components.length}</span>{" "}
+        components
+      </div>
+      {index.hubs.length > 0 && (
+        <>
+          <div className="vault-metrics-heading">Top hubs</div>
+          <div className="vault-hubs">
+            {index.hubs.slice(0, 15).map((h) => (
+              <div key={h.title} className="vault-hub-row">
+                <span className="vault-hub-degree">{h.in_degree}</span>
+                <span className="vault-hub-title">{h.title}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function OrphansTab({ index }) {
+  const [query, setQuery] = useState("");
+  const filtered = index.orphans.filter(
+    (t) => !query || t.toLowerCase().includes(query.toLowerCase()),
+  );
+  return (
+    <div className="vault-list-panel">
+      <div className="vault-list-toolbar">
+        <input
+          className="vault-list-filter"
+          placeholder="Filter orphans…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <span className="vault-list-count">
+          {filtered.length} / {index.orphans.length}
+        </span>
+      </div>
+      <div className="vault-list">
+        {filtered.map((title) => (
+          <div key={title} className="vault-list-row">
+            <span className="vault-list-title">{title}</span>
+          </div>
+        ))}
+        {filtered.length === 0 && (
+          <div className="vault-list-empty">No orphans match your filter.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BrokenLinksTab({ index }) {
+  const [query, setQuery] = useState("");
+  const filtered = index.broken_links.filter(
+    (l) =>
+      !query ||
+      l.source.toLowerCase().includes(query.toLowerCase()) ||
+      l.target.toLowerCase().includes(query.toLowerCase()),
+  );
+  return (
+    <div className="vault-list-panel">
+      <div className="vault-list-toolbar">
+        <input
+          className="vault-list-filter"
+          placeholder="Filter broken links…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <span className="vault-list-count">
+          {filtered.length} / {index.broken_links.length}
+        </span>
+      </div>
+      <div className="vault-list">
+        {filtered.map((l, i) => (
+          <div key={i} className="vault-list-row vault-link-row">
+            <span className="vault-link-source">{l.source}</span>
+            <span className="vault-link-arrow">→</span>
+            <span className="vault-link-target">{l.target}</span>
+            <span className="vault-link-type">{l.type}</span>
+          </div>
+        ))}
+        {filtered.length === 0 && (
+          <div className="vault-list-empty">
+            No broken links match your filter.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TagsTab({ index }) {
+  const [query, setQuery] = useState("");
+  const entries = Object.entries(index.tag_counts);
+  const filtered = entries.filter(
+    ([tag]) => !query || tag.toLowerCase().includes(query.toLowerCase()),
+  );
+  const maxCount = Math.max(...entries.map(([, c]) => c), 1);
+  return (
+    <div className="vault-list-panel">
+      <div className="vault-list-toolbar">
+        <input
+          className="vault-list-filter"
+          placeholder="Filter tags…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        <span className="vault-list-count">
+          {filtered.length} / {entries.length}
+        </span>
+      </div>
+      <div className="vault-list">
+        {filtered.map(([tag, count]) => (
+          <div key={tag} className="vault-list-row vault-tag-row">
+            <span className="vault-tag-name">{tag}</span>
+            <div className="vault-tag-bar-wrap">
+              <div
+                className="vault-tag-bar"
+                style={{ width: `${(count / maxCount) * 100}%` }}
+              />
+            </div>
+            <span className="vault-tag-count">{count}</span>
+          </div>
+        ))}
+        {filtered.length === 0 && (
+          <div className="vault-list-empty">No tags match your filter.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DuplicatesTab({ index }) {
+  return (
+    <div className="vault-list-panel">
+      <div className="vault-list">
+        {index.duplicate_titles.map((dup, i) => (
+          <div key={i} className="vault-dup-block">
+            <div className="vault-dup-title">{dup.title}</div>
+            {dup.paths.map((p) => (
+              <div key={p} className="vault-dup-path">
+                {p}
+              </div>
+            ))}
+          </div>
+        ))}
+        {index.duplicate_titles.length === 0 && (
+          <div className="vault-list-empty">No duplicate titles.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ComponentsTab({ index }) {
+  // Group by size for compact display.
+  const bySize = index.components.reduce((acc, size) => {
+    acc[size] = (acc[size] || 0) + 1;
+    return acc;
+  }, {});
+  const rows = Object.entries(bySize)
+    .map(([size, count]) => ({ size: Number(size), count }))
+    .sort((a, b) => b.size - a.size);
+  return (
+    <div className="vault-list-panel">
+      <div className="vault-list">
+        {rows.map(({ size, count }) => (
+          <div key={size} className="vault-list-row">
+            <span className="vault-list-title">
+              {count} component{count === 1 ? "" : "s"} of size {size}
+              {size === 1 && " (isolated notes)"}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

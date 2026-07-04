@@ -1019,3 +1019,304 @@ body {
   overflow-y: auto;
   border-bottom: 1px solid var(--bg-surface);
 }
+
+/* ── Vault tabs + list panels (step 4) ─────────────────────────────────── */
+.vault-empty {
+  color: var(--text-muted);
+  text-align: center;
+  padding: 48px 24px;
+  font-size: 14px;
+}
+
+.vault-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--bg-surface);
+  padding: 0 4px;
+}
+
+.vault-tab {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 2px solid transparent;
+  transition:
+    color 0.15s,
+    border-color 0.15s;
+}
+
+.vault-tab:hover {
+  color: var(--text-primary);
+}
+
+.vault-tab.active {
+  color: var(--unc-blue);
+  border-bottom-color: var(--unc-blue);
+}
+
+.vault-tab-count {
+  color: var(--text-muted);
+  background: var(--bg-input);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+.vault-tab.active .vault-tab-count {
+  color: var(--unc-blue);
+  background: rgba(75, 156, 211, 0.15);
+}
+
+.vault-tab-body {
+  flex: 1;
+  min-height: 300px;
+  overflow-y: auto;
+}
+
+.vault-list-panel {
+  background: var(--bg-card);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vault-list-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 4px 8px 4px;
+  border-bottom: 1px solid var(--bg-surface);
+}
+
+.vault-list-filter {
+  flex: 1;
+  background: var(--bg-input);
+  border: 1px solid var(--bg-surface);
+  color: var(--text-primary);
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  outline: none;
+}
+
+.vault-list-filter:focus {
+  border-color: var(--unc-blue);
+}
+
+.vault-list-count {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-family: monospace;
+}
+
+.vault-list {
+  max-height: 480px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.vault-list-row {
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.vault-list-row:hover {
+  background: var(--bg-input);
+}
+
+.vault-list-title {
+  flex: 1;
+}
+
+.vault-list-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 24px;
+  text-align: center;
+}
+
+/* Broken link rows */
+.vault-link-row {
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.vault-link-source {
+  color: var(--text-primary);
+  min-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-link-arrow {
+  color: var(--text-muted);
+}
+
+.vault-link-target {
+  color: var(--tokyo-red);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-link-type {
+  color: var(--text-muted);
+  font-size: 11px;
+  background: var(--bg-input);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+/* Tag rows */
+.vault-tag-row {
+  gap: 12px;
+}
+
+.vault-tag-name {
+  min-width: 200px;
+  font-family: monospace;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-tag-bar-wrap {
+  flex: 1;
+  height: 10px;
+  background: var(--bg-input);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.vault-tag-bar {
+  height: 100%;
+  background: var(--unc-blue);
+  transition: width 0.2s;
+}
+
+.vault-tag-count {
+  color: var(--text-primary);
+  font-family: monospace;
+  font-size: 12px;
+  min-width: 48px;
+  text-align: right;
+}
+
+/* Duplicates */
+.vault-dup-block {
+  padding: 8px;
+  border-bottom: 1px solid var(--bg-surface);
+}
+
+.vault-dup-block:last-child {
+  border-bottom: none;
+}
+
+.vault-dup-title {
+  color: var(--tokyo-orange);
+  font-weight: 600;
+  font-size: 13px;
+  padding-bottom: 4px;
+}
+
+.vault-dup-path {
+  color: var(--text-muted);
+  font-family: monospace;
+  font-size: 11px;
+  padding: 2px 0 2px 12px;
+}
+/* ── Scroll fixes for vault tabs + list rows ─────────────────────────── */
+
+/* Tab bar: horizontal scroll instead of overflow */
+.vault-tabs {
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
+  scrollbar-width: thin;
+}
+
+.vault-tabs::-webkit-scrollbar {
+  height: 6px;
+}
+
+.vault-tabs::-webkit-scrollbar-thumb {
+  background: var(--bg-surface);
+  border-radius: 3px;
+}
+
+.vault-tab {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* List rows: contain overflow within the panel, don't push app wide */
+.vault-list-panel {
+  min-width: 0; /* let flex children shrink instead of overflow */
+  overflow: hidden;
+}
+
+.vault-list {
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
+.vault-list-row {
+  min-width: 0;
+}
+
+/* Broken link rows: allow the target column to truncate instead of overflow */
+.vault-link-row {
+  overflow: hidden;
+}
+
+.vault-link-target {
+  min-width: 0;
+}
+
+/* Ensure the top-level vault-workbench doesn't force page-level horizontal scroll */
+.vault-workbench {
+  min-width: 0;
+  overflow-x: hidden;
+}
+/* Allow text selection in vault list rows for copy/paste */
+.vault-list,
+.vault-list-row,
+.vault-link-source,
+.vault-link-target,
+.vault-list-title,
+.vault-tag-name,
+.vault-hub-title,
+.vault-dup-title,
+.vault-dup-path,
+.vault-path {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+/* Buttons inside these areas keep pointer cursor */
+.vault-list button,
+.vault-list-row button {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+}
