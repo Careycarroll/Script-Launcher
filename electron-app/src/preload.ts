@@ -15,6 +15,27 @@ contextBridge.exposeInMainWorld("electronAPI", {
   PickFolder: () => ipcRenderer.invoke("pick-folder"),
   AnalyzeBookmarks: (pdfPath: string) =>
     ipcRenderer.invoke("analyze-bookmarks", pdfPath),
+  SaveFile: (opts: { defaultName: string; content: string; filters?: any[] }) =>
+    ipcRenderer.invoke("save-file", opts),
+  StreamStart: (opts: { script: string; args: string[] }) =>
+    ipcRenderer.invoke("stream-start", opts),
+
+  StreamInput: (data: any) => ipcRenderer.invoke("stream-input", data),
+
+  StreamStop: () => ipcRenderer.invoke("stream-stop"),
+
+  onStreamLine: (cb: (msg: any) => void) => {
+    ipcRenderer.on("stream-line", (_e, msg) => cb(msg));
+  },
+
+  onStreamExit: (cb: (info: any) => void) => {
+    ipcRenderer.on("stream-exit", (_e, info) => cb(info));
+  },
+
+  offStreamLine: () => ipcRenderer.removeAllListeners("stream-line"),
+  offStreamExit: () => ipcRenderer.removeAllListeners("stream-exit"),
+
+  OpenExternal: (url: string) => ipcRenderer.invoke("open-external", url),
 
   // ── PTY / Terminal ────────────────────────────────────────────────────────
   PtyShell: () => ipcRenderer.invoke("pty-shell"),
