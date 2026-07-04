@@ -57,6 +57,11 @@ import yaml
 # ── Configuration ──────────────────────────────────────────────────────────
 DEFAULT_EXCLUDE_DIRS = {'__Templates', '_Assets', '.obsidian', '.trash'}
 
+# Files excluded by default. Match on basename (case-sensitive).
+# Vault Health Report is auto-generated and would link to every broken/orphan
+# note, artificially inflating its degree and merging components.
+DEFAULT_EXCLUDE_FILES = {'Vault Health Report.md'}
+
 
 # ── Regexes ────────────────────────────────────────────────────────────────
 WIKILINK_RE = re.compile(r'(?<!\!)\[\[([^\[\]|#]+)(?:#[^|\]]*)?(?:\|[^\]]*)?\]\]')
@@ -115,11 +120,18 @@ def extract_links(body: str) -> tuple[list[str], list[str], list[str]]:
 
 
 # ── Vault walking ──────────────────────────────────────────────────────────
-def find_notes(vault: Path, exclude_dirs: set[str]) -> list[Path]:
+def find_notes(vault: Path, exclude_dirs: set[str], exclude_files: set[str]) -> list[Path]:
+    """
+    Recursively find all .md files, skipping any file whose path contains
+    a directory component matching exclude_dirs OR whose basename matches
+    exclude_files.
+    """
     notes = []
     for md in vault.rglob('*.md'):
         rel_parts = md.relative_to(vault).parts
         if any(part in exclude_dirs for part in rel_parts):
+            continue
+        if md.name in exclude_files:
             continue
         notes.append(md)
     return sorted(notes)
@@ -136,8 +148,9 @@ def icloud_prefetch(vault: Path) -> None:
 
 
 # ── Index build ────────────────────────────────────────────────────────────
-def build_index(vault: Path, exclude_dirs: set[str]) -> dict:
-    note_paths = find_notes(vault, exclude_dirs)
+def build_index(vault: Path, exclude_dirs: set[str], exclude_files: set[str]) -> dict:
+    """Parse every note and assemble the full index dict."""
+    note_paths = find_notes(vault, exclude_dirs, exclude_files)
 
     notes_by_title: dict[str, Path] = {}
     duplicates = []
@@ -258,6 +271,7 @@ def build_index(vault: Path, exclude_dirs: set[str]) -> dict:
         'tag_counts': dict(tag_counts.most_common()),
         'duplicate_titles': duplicates,
         'excluded_dirs': sorted(exclude_dirs),
+        'excluded_files': sorted(exclude_files),
         # Internal state carried forward for serve-mode methods.
         # Not intended for direct consumption; kept in the dict for reuse.
         '_notes_by_title': {t: str(p) for t, p in notes_by_title.items()},
@@ -270,9 +284,10 @@ def build_index(vault: Path, exclude_dirs: set[str]) -> dict:
 class IndexServer:
     """Long-lived server. Holds one cached index; rebuilds on demand."""
 
-    def __init__(self, vault: Path, exclude_dirs: set[str], skip_download: bool):
+    def __init__(self, vault: Path, exclude_dirs: set[str], exclude_files: set[str], skip_download: bool):
         self.vault = vault
         self.exclude_dirs = exclude_dirs
+        self.exclude_files = exclude_files
         self.skip_download = skip_download
         self._index: Optional[dict] = None
 
@@ -284,7 +299,7 @@ class IndexServer:
     def _reindex_inplace(self) -> None:
         if not self.skip_download:
             icloud_prefetch(self.vault)
-        self._index = build_index(self.vault, self.exclude_dirs)
+        self._index = build_index(self.vault, self.exclude_dirs, self.exclude_files)
 
     # ── Methods (called by dispatch) ────────────────────────────────────
     def reindex(self, params: dict) -> dict:
@@ -467,7 +482,11 @@ def main() -> int:
     parser.add_argument('--exclude-dir', action='append', default=[],
                         help="Additional directory name to exclude (can be repeated)")
     parser.add_argument('--include-default-excluded', action='store_true',
-                        help="Ignore the built-in exclude list")
+                        help="Ignore the built-in exclude-dirs list (index __Templates etc.)")
+    parser.add_argument('--exclude-file', action='append', default=[],
+                        help="Additional file basename to exclude (can be repeated)")
+    parser.add_argument('--include-default-excluded-files', action='store_true',
+                        help="Ignore the built-in exclude-files list (Vault Health Report.md, etc.)")
     parser.add_argument('--skip-download', action='store_true',
                         help="Skip 'brctl download'")
     args = parser.parse_args()
@@ -480,8 +499,11 @@ def main() -> int:
     exclude_dirs = set() if args.include_default_excluded else set(DEFAULT_EXCLUDE_DIRS)
     exclude_dirs.update(args.exclude_dir)
 
+    exclude_files = set() if args.include_default_excluded_files else set(DEFAULT_EXCLUDE_FILES)
+    exclude_files.update(args.exclude_file)
+
     if args.serve:
-        server = IndexServer(vault, exclude_dirs, args.skip_download)
+        server = IndexServer(vault, exclude_dirs, exclude_files, args.skip_download)
         return server.run()
 
     # One-shot mode.
@@ -490,8 +512,9 @@ def main() -> int:
         icloud_prefetch(vault)
 
     print(f'. indexing {vault}', file=sys.stderr)
-    print(f'. excluding: {sorted(exclude_dirs) or "(nothing)"}', file=sys.stderr)
-    index = build_index(vault, exclude_dirs)
+    print(f'. excluding dirs: {sorted(exclude_dirs) or "(nothing)"}', file=sys.stderr)
+    print(f'. excluding files: {sorted(exclude_files) or "(nothing)"}', file=sys.stderr)
+    index = build_index(vault, exclude_dirs, exclude_files)
 
     print(f'. {index["note_count"]} notes', file=sys.stderr)
     print(f'. {len(index["edges"])} edges', file=sys.stderr)
