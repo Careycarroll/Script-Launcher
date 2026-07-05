@@ -6,9 +6,14 @@ import {
   resetElectronAPIMock,
 } from "./electronAPIMock";
 
-// Install a fresh mock before every test so state never leaks between tests.
+// Install once at module load so components that destructure window.electronAPI
+// at import time (e.g. BookmarkEditor) see it. beforeEach reinstalls for isolation.
+installElectronAPIMock();
+
 beforeEach(() => {
-  installElectronAPIMock();
+  // Do NOT reinstall the mock — components capture method references at module
+  // load and would lose them. Individual tests reset method behavior via
+  // mockReset()/mockImplementation() on the captured references.
 });
 
 afterEach(() => {
