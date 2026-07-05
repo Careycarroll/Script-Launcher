@@ -37,7 +37,8 @@ function isPanoptoUrl(s) {
 }
 
 function formatBytes(n) {
-  if (!n) return "";
+  if (n === null || n === undefined || Number.isNaN(n)) return "";
+  if (n === 0) return "0 B";
   const units = ["B", "KB", "MB", "GB"];
   let i = 0;
   while (n >= 1024 && i < units.length - 1) {
@@ -52,6 +53,16 @@ function formatEta(seconds) {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, "0")}`;
+}
+
+function formatDuration(seconds) {
+  if (!seconds) return "";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  return h > 0
+    ? `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`
+    : `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 export default function PanoptoDownloader() {
@@ -72,6 +83,8 @@ export default function PanoptoDownloader() {
   const [logs, setLogs] = useState([]);
   const [conflict, setConflict] = useState(null);
   const [result, setResult] = useState(null);
+  const [metadata, setMetadata] = useState(null);
+  const [editedTitle, setEditedTitle] = useState("");
 
   const logRef = useRef(null);
 
@@ -82,19 +95,22 @@ export default function PanoptoDownloader() {
     localStorage.setItem(BROWSER_KEY, browser);
   }, [browser]);
 
-  // Auto-detect next NN. prefix whenever outDir changes. Scans the folder,
-  // finds the max leading number across all filenames, adds 1, zero-pads.
+  // Auto-detect next NN. prefix whenever outDir changes.
   useEffect(() => {
     if (!outDir) return;
-    ListDir(outDir).then((entries) => {
-      if (!Array.isArray(entries)) return;
-      let maxN = 0;
-      for (const name of entries) {
-        const m = name.match(/^(\d+)\.\s/);
-        if (m) maxN = Math.max(maxN, parseInt(m[1], 10));
-      }
-      setPrefix((maxN + 1).toString().padStart(2, "0"));
-    }).catch(() => { /* ignore; user can still type manually */ });
+    ListDir(outDir)
+      .then((entries) => {
+        if (!Array.isArray(entries)) return;
+        let maxN = 0;
+        for (const name of entries) {
+          const m = name.match(/^(\d+)\.\s/);
+          if (m) maxN = Math.max(maxN, parseInt(m[1], 10));
+        }
+        setPrefix((maxN + 1).toString().padStart(2, "0"));
+      })
+      .catch(() => {
+        /* ignore; user can still type manually */
+      });
   }, [outDir]);
 
   useEffect(() => {
@@ -119,7 +135,9 @@ export default function PanoptoDownloader() {
   async function copyConsoleSnippet() {
     try {
       await navigator.clipboard.writeText(CANVAS_CONSOLE_SNIPPET);
-      appendLog('Console snippet copied. Paste into DevTools Console on the Panopto page.');
+      appendLog(
+        "Console snippet copied. Paste into DevTools Console on the Panopto page.",
+      );
     } catch (e) {
       appendLog(`✗ Copy failed: ${e.message || e}`);
     }
@@ -137,6 +155,8 @@ export default function PanoptoDownloader() {
     setLogs([]);
     setConflict(null);
     setResult(null);
+    setMetadata(null);
+    setEditedTitle("");
 
     const args = [
       url,
@@ -155,6 +175,10 @@ export default function PanoptoDownloader() {
     onStreamLine((msg) => {
       if (msg.type === "info") {
         appendLog(msg.message);
+      } else if (msg.type === "metadata") {
+        setMetadata(msg);
+        setEditedTitle(msg.title || "");
+        appendLog(`Found: ${msg.title}`);
       } else if (msg.type === "progress") {
         setProgress(msg);
       } else if (msg.type === "conflict") {
@@ -188,6 +212,17 @@ export default function PanoptoDownloader() {
     await StreamStop();
     setDownloading(false);
     appendLog("Stopped.");
+  }
+
+  async function confirmDownload() {
+    await StreamInput({ action: "confirm", title: editedTitle });
+    setMetadata(null);
+  }
+
+  async function cancelDownload() {
+    await StreamInput({ action: "cancel" });
+    setMetadata(null);
+    setEditedTitle("");
   }
 
   async function revealInFinder() {
@@ -230,7 +265,8 @@ export default function PanoptoDownloader() {
             </button>
           </div>
           <div className="panopto-hint">
-            Clipboard auto-detects Panopto URLs on tile visit. "Copy snippet" is a fallback for pages where right-click isn't available.
+            Clipboard auto-detects Panopto URLs on tile visit. "Copy snippet" is
+            a fallback for pages where right-click isn't available.
           </div>
         </div>
 
@@ -330,12 +366,54 @@ export default function PanoptoDownloader() {
               Download
             </button>
           )}
-          {downloading && !conflict && (
+          {downloading && !conflict && !metadata && (
             <button className="btn-secondary" onClick={cancel}>
               Cancel
             </button>
           )}
         </div>
+
+        {metadata && (
+          <div className="panopto-metadata">
+            <div className="panopto-metadata-label">Review & confirm</div>
+            <input
+              className="panopto-input panopto-metadata-title-input"
+              value={editedTitle}
+              onChange={(e) => setEditedTitle(e.target.value)}
+              placeholder="Video title (used in filename)"
+            />
+            <div className="panopto-metadata-stats">
+              {metadata.width && metadata.height && (
+                <span>
+                  {metadata.width}×{metadata.height}
+                </span>
+              )}
+              {metadata.fps && <span>· {metadata.fps} fps</span>}
+              {metadata.duration_seconds && (
+                <span>· {formatDuration(metadata.duration_seconds)}</span>
+              )}
+              {metadata.filesize && (
+                <span>· ~{formatBytes(metadata.filesize)}</span>
+              )}
+              {metadata.format_id && <span>· {metadata.format_id}</span>}
+            </div>
+            <div className="panopto-metadata-preview">
+              Will save as: <code>{prefix}. {editedTitle}.mp4</code>
+            </div>
+            <div className="panopto-metadata-actions">
+              <button
+                className="btn-run"
+                onClick={confirmDownload}
+                disabled={!editedTitle.trim()}
+              >
+                Confirm & download
+              </button>
+              <button className="btn-secondary" onClick={cancelDownload}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
 
         {progress && !conflict && (
           <div className="panopto-progress">
