@@ -10,6 +10,20 @@ import {
 // at import time (e.g. BookmarkEditor) see it. beforeEach reinstalls for isolation.
 installElectronAPIMock();
 
+// jsdom doesn't implement navigator.clipboard. Provide a mockable shim so
+// components that read/write the clipboard (Panopto, generic yt-dlp) don't crash.
+Object.defineProperty(navigator, "clipboard", {
+  value: {
+    readText: vi.fn(async () => ""),
+    writeText: vi.fn(async () => {}),
+  },
+  configurable: true,
+});
+
+// jsdom stubs alert to throw. Some components (VaultWorkbench.runAlsoInDomain)
+// call alert on error paths; silence it.
+window.alert = vi.fn();
+
 beforeEach(() => {
   // Do NOT reinstall the mock — components capture method references at module
   // load and would lose them. Individual tests reset method behavior via
