@@ -454,7 +454,7 @@ export default function VaultWorkbench() {
   );
 }
 
-function tabCount(tab, idx) {
+export function tabCount(tab, idx) {
   switch (tab) {
     case "Overview":
       return idx.note_count;
@@ -476,7 +476,7 @@ function tabCount(tab, idx) {
 }
 
 // ── Overview ──
-function OverviewTab({ index }) {
+export function OverviewTab({ index }) {
   return (
     <div className="vault-metrics">
       <div className="vault-metric-row">
@@ -873,7 +873,7 @@ function NoteSidePanel({
 }
 
 // ── Orphans ──
-function OrphansTab({ index }) {
+export function OrphansTab({ index }) {
   const [query, setQuery] = useState("");
   const filtered = index.orphans.filter(
     (t) => !query || t.toLowerCase().includes(query.toLowerCase()),
@@ -906,7 +906,7 @@ function OrphansTab({ index }) {
 }
 
 // ── Broken Links ──
-function BrokenLinksTab({ index }) {
+export function BrokenLinksTab({ index }) {
   const [query, setQuery] = useState("");
   const filtered = index.broken_links.filter(
     (l) =>
@@ -947,7 +947,7 @@ function BrokenLinksTab({ index }) {
 }
 
 // ── Tags ──
-function TagsTab({ index }) {
+export function TagsTab({ index }) {
   const [query, setQuery] = useState("");
   const entries = Object.entries(index.tag_counts);
   const filtered = entries.filter(
@@ -989,7 +989,7 @@ function TagsTab({ index }) {
 }
 
 // ── Duplicates ──
-function DuplicatesTab({ index }) {
+export function DuplicatesTab({ index }) {
   return (
     <div className="vault-list-panel">
       <div className="vault-list">
@@ -1012,7 +1012,7 @@ function DuplicatesTab({ index }) {
 }
 
 // ── Components ──
-function ComponentsTab({ index }) {
+export function ComponentsTab({ index }) {
   const bySize = index.components.reduce((acc, size) => {
     acc[size] = (acc[size] || 0) + 1;
     return acc;
