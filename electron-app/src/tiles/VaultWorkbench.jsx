@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import ForceGraph2D from "react-force-graph-2d";
+import TerminalPanel from "../Terminal";
 const {
   VaultStart,
   VaultQuery,
@@ -8,6 +9,7 @@ const {
   GetGroups,
   RunScript,
   PtyCreate,
+  PtyKill,
   SaveFile,
   OpenExternal,
 } = window.electronAPI;
@@ -45,6 +47,10 @@ export default function VaultWorkbench() {
   const [activeTab, setActiveTab] = useState("Overview");
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const [footerCollapsed, setFooterCollapsed] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalReady, setTerminalReady] = useState(false);
+  const [terminalTitle, setTerminalTitle] = useState("");
+  const [pendingTerminalLaunch, setPendingTerminalLaunch] = useState(null);
 
   useEffect(() => {
     GetGroups().then((groups) => {
@@ -73,6 +79,17 @@ export default function VaultWorkbench() {
     },
     [],
   );
+
+  useEffect(() => {
+    if (!terminalReady || !pendingTerminalLaunch) return;
+
+    const launch = async () => {
+      await PtyCreate(pendingTerminalLaunch.path, pendingTerminalLaunch.args);
+      setPendingTerminalLaunch(null);
+    };
+
+    launch();
+  }, [terminalReady, pendingTerminalLaunch]);
 
   async function pickPath() {
     const p = await PickFolder();
@@ -124,10 +141,22 @@ export default function VaultWorkbench() {
     }
   }
 
+  async function closeTerminal() {
+    await PtyKill();
+    setTerminalOpen(false);
+    setTerminalReady(false);
+    setPendingTerminalLaunch(null);
+  }
+
   async function runAlsoInDomain(entry) {
     if (entry.interactive) {
-      window.location.hash = "#/terminal";
-      await PtyCreate(entry.path, []);
+      setTerminalTitle(entry.name);
+      setTerminalOpen(true);
+      setTerminalReady(false);
+      setPendingTerminalLaunch({
+        path: entry.path,
+        args: [],
+      });
     } else {
       const result = await RunScript(entry.groupIdx, entry.scriptIdx, []);
       alert(result.output || result.error || "(no output)");
@@ -370,6 +399,23 @@ export default function VaultWorkbench() {
             {activeTab === "Components" && <ComponentsTab index={index} />}
           </div>
         </>
+      )}
+
+      {terminalOpen && (
+        <div className="embedded-terminal-panel">
+          <div className="embedded-terminal-header">
+            <span>Terminal — {terminalTitle}</span>
+            <button className="btn-secondary" onClick={closeTerminal}>
+              Close Terminal
+            </button>
+          </div>
+          <div className="embedded-terminal-body">
+            <TerminalPanel
+              autoStartShell={false}
+              onReady={() => setTerminalReady(true)}
+            />
+          </div>
+        </div>
       )}
 
       {alsoInDomain.length > 0 && (
