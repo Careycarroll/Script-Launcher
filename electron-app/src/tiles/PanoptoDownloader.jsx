@@ -9,6 +9,7 @@ const {
   offStreamExit,
   PickFolder,
   OpenExternal,
+  ListDir,
 } = window.electronAPI;
 
 const OUT_DIR_KEY = "panopto-out-dir";
@@ -80,6 +81,21 @@ export default function PanoptoDownloader() {
   useEffect(() => {
     localStorage.setItem(BROWSER_KEY, browser);
   }, [browser]);
+
+  // Auto-detect next NN. prefix whenever outDir changes. Scans the folder,
+  // finds the max leading number across all filenames, adds 1, zero-pads.
+  useEffect(() => {
+    if (!outDir) return;
+    ListDir(outDir).then((entries) => {
+      if (!Array.isArray(entries)) return;
+      let maxN = 0;
+      for (const name of entries) {
+        const m = name.match(/^(\d+)\.\s/);
+        if (m) maxN = Math.max(maxN, parseInt(m[1], 10));
+      }
+      setPrefix((maxN + 1).toString().padStart(2, "0"));
+    }).catch(() => { /* ignore; user can still type manually */ });
+  }, [outDir]);
 
   useEffect(() => {
     navigator.clipboard
