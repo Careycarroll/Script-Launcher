@@ -136,6 +136,11 @@ ipcMain.handle("pick-file", async (event, extensions?: string[]) => {
   return result.canceled ? "" : result.filePaths[0];
 });
 
+
+function shellQuote(value: string): string {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
 // ── PTY handlers ─────────────────────────────────────────────────────────
 let activePty: pty.IPty | null = null;
 
@@ -202,13 +207,20 @@ ipcMain.handle(
     }
 
     try {
-      activePty = pty.spawn(scriptPath, args, {
+      // Spawn interactive scripts through the user's shell rather than
+      // executing the file directly. This better matches launching from
+      // Terminal.app and preserves PATH/login-shell expectations for TUI
+      // wrappers such as manage_vault.
+      const shell = process.env.SHELL || "/bin/zsh";
+      const command = [scriptPath, ...args].map(shellQuote).join(" ");
+      activePty = pty.spawn(shell, ["-lc", `exec ${command}`], {
         name: "xterm-256color",
         cols: 120,
         rows: 40,
+        cwd: process.env.HOME || app.getPath("home"),
         env,
       });
-      console.log("[pty-create] spawn ok pid=", activePty.pid);
+      console.log("[pty-create] spawn ok pid=", activePty.pid, "cmd=", command);
     } catch (err) {
       console.error("[pty-create] SPAWN FAILED:", err);
       return false;

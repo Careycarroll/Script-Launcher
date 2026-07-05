@@ -1990,3 +1990,100 @@ body {
   gap: 8px;
   margin-top: 8px;
 }
+
+/* ── Embedded terminal for interactive registry scripts ─────────────── */
+.embedded-terminal {
+  margin: 16px 0;
+  background: var(--bg-card);
+  border: 1px solid var(--bg-surface);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 420px;
+}
+
+.embedded-terminal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--bg-input);
+}
+
+.embedded-terminal-title {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.embedded-terminal-body {
+  flex: 1;
+  min-height: 380px;
+  background: #0d1117;
+}
+
+/* ── Embedded tile-local terminal ─────────────────────────────────────── */
+.embedded-terminal-panel {
+  margin: 16px 0;
+  background: var(--bg-card);
+  border: 1px solid var(--bg-surface);
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+}
+
+.embedded-terminal-header {
+  height: 44px;
+  padding: 0 12px 0 16px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--bg-input);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.embedded-terminal-body {
+  height: 420px;
+  min-height: 320px;
+  background: #0d1117;
+}
+
+/* ── Terminal overlay for tile-local interactive scripts ─────────────────
+   When an interactive registry/Vault tool launches, the terminal should become
+   the active viewport rather than appearing below existing tile content. */
+.embedded-terminal-panel {
+  position: fixed;
+  top: 69px; /* below global Heelworks header */
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 100;
+  margin: 0;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  min-height: 0;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+}
+
+.embedded-terminal-header {
+  flex: 0 0 44px;
+}
+
+.embedded-terminal-body {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}

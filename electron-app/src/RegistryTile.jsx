@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-const { GetGroups, RunScript, PickFile, PickFolder, PtyCreate } =
+const { GetGroups, RunScript, PickFile, PickFolder, PtyCreate, PtyKill } =
   window.electronAPI;
 import WidgetRenderer from "./WidgetRenderer";
 import BookmarkEditor from "./features/BookmarkEditor";
+import TerminalPanel from "./Terminal";
 
 // Shared tile body for registry-driven domains (Documents, Vault, Media,
 // Developer). Filters the flat registry by `domain`, renders a sidebar of
@@ -26,6 +27,10 @@ export default function RegistryTile({ domain, title }) {
   const [output, setOutput] = useState("");
   const [status, setStatus] = useState("idle");
   const [bookmarkCanApply, setBookmarkCanApply] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [terminalReady, setTerminalReady] = useState(false);
+  const [terminalTitle, setTerminalTitle] = useState("");
+  const [pendingTerminalLaunch, setPendingTerminalLaunch] = useState(null);
   const bookmarkRef = useRef(null);
 
   useEffect(() => {
@@ -43,6 +48,18 @@ export default function RegistryTile({ domain, title }) {
       setEntries(flat);
     });
   }, [domain]);
+
+  useEffect(() => {
+    if (!terminalReady || !pendingTerminalLaunch) return;
+
+    const launch = async () => {
+      await PtyCreate(pendingTerminalLaunch.path, pendingTerminalLaunch.args);
+      setPendingTerminalLaunch(null);
+      setStatus("idle");
+    };
+
+    launch();
+  }, [terminalReady, pendingTerminalLaunch]);
 
   const script = selected != null ? entries[selected] : null;
   const isMultiFile = script?.argDefs?.some((d) => d.multiFile) ?? false;
@@ -70,6 +87,9 @@ export default function RegistryTile({ domain, title }) {
     setOutput("");
     setStatus("idle");
     setBookmarkCanApply(false);
+    setTerminalOpen(false);
+    setTerminalReady(false);
+    setPendingTerminalLaunch(null);
     bookmarkRef.current?.reset();
   }
 
@@ -142,11 +162,13 @@ export default function RegistryTile({ domain, title }) {
       : [...flags, ...positional];
 
     if (script.interactive) {
-      // Interactive scripts route the user to the terminal tab via
-      // hash navigation; PtyCreate spawns the PTY.
-      window.location.hash = "#/terminal";
-      await PtyCreate(script.path, finalArgs);
-      setStatus("idle");
+      setTerminalTitle(script.name);
+      setTerminalOpen(true);
+      setPendingTerminalLaunch({
+        path: script.path,
+        args: finalArgs,
+        nonce: Date.now(),
+      });
       return;
     }
     const result = await RunScript(
@@ -165,6 +187,14 @@ export default function RegistryTile({ domain, title }) {
     setQueueMode(null);
     setBookmarkCanApply(false);
     bookmarkRef.current?.reset();
+  }
+
+  async function closeTerminal() {
+    await PtyKill();
+    setTerminalOpen(false);
+    setTerminalReady(false);
+    setPendingTerminalLaunch(null);
+    setStatus("idle");
   }
 
   const statusLabel = {
@@ -273,6 +303,23 @@ export default function RegistryTile({ domain, title }) {
                 />
               )}
             </div>
+
+            {terminalOpen && (
+              <div className="embedded-terminal-panel">
+                <div className="embedded-terminal-header">
+                  <span>Terminal — {terminalTitle}</span>
+                  <button className="btn-secondary" onClick={closeTerminal}>
+                    Close Terminal
+                  </button>
+                </div>
+                <div className="embedded-terminal-body">
+                  <TerminalPanel
+                    autoStartShell={false}
+                    onReady={() => setTerminalReady(true)}
+                  />
+                </div>
+              </div>
+            )}
 
             {output && (
               <div
