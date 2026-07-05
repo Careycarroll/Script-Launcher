@@ -1955,7 +1955,6 @@ body {
   padding: 4px 2px 0;
   line-height: 1.4;
 }
-cat >> electron-app/src/App.css <<'EOF'
 
 .panopto-metadata-label {
   color: var(--unc-blue);
@@ -1991,4 +1990,3 @@ cat >> electron-app/src/App.css <<'EOF'
   gap: 8px;
   margin-top: 8px;
 }
-EOF
