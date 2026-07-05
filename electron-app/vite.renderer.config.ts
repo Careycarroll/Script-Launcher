@@ -1,6 +1,32 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import type { ConfigEnv, UserConfig } from "vite";
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import { pluginExposeRenderer } from "./vite.base.config";
 
-export default defineConfig({
-  plugins: [react()],
+// https://vitejs.dev/config
+export default defineConfig((env) => {
+  const forgeEnv = env as ConfigEnv & { forgeConfigSelf?: { name?: string } };
+  const { root, mode, forgeConfigSelf } = forgeEnv;
+  const name = forgeConfigSelf?.name ?? "";
+
+  return {
+    root,
+    mode,
+    base: "./",
+    build: {
+      outDir: `.vite/renderer/${name}`,
+    },
+    plugins: [pluginExposeRenderer(name), react()],
+    resolve: {
+      preserveSymlinks: true,
+    },
+    clearScreen: false,
+    test: {
+      globals: true,
+      environment: "jsdom",
+      setupFiles: ["./src/test/setup.ts"],
+      include: ["src/**/*.{test,spec}.{ts,tsx}"],
+      css: false,
+    },
+  } as UserConfig;
 });
