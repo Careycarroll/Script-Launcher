@@ -45,6 +45,7 @@ import os
 import re
 import sys
 import time
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -73,6 +74,48 @@ QUALITY_FORMATS = {
     '720p':  'best[height<=720]',
 }
 
+
+
+def pick_metadata_format(info: dict, quality: str) -> dict | None:
+    """
+    Pick the format we expect yt-dlp to download, for metadata display only.
+    Panopto serves combined HLS video+audio streams, so prefer formats with
+    real dimensions and ignore PODCAST/unknown formats.
+    """
+    formats = info.get('formats') or []
+    video_formats = [
+        f for f in formats
+        if f.get('height') and f.get('width') and f.get('vcodec') != 'none'
+    ]
+    if not video_formats:
+        return None
+
+    def score(f):
+        return (f.get('height') or 0, f.get('tbr') or 0)
+
+    if quality == '720p':
+        candidates = [f for f in video_formats if (f.get('height') or 0) <= 720]
+        return max(candidates or video_formats, key=score)
+
+    if quality == '1080p':
+        candidates = [f for f in video_formats if (f.get('height') or 0) <= 1080]
+        return max(candidates or video_formats, key=score)
+
+    # best
+    return max(video_formats, key=score)
+
+
+def estimate_filesize_bytes(fmt: dict | None, duration_seconds: float | None) -> int | None:
+    """Use filesize if present; otherwise estimate from total bitrate."""
+    if not fmt:
+        return None
+    size = fmt.get('filesize') or fmt.get('filesize_approx')
+    if size:
+        return int(size)
+    tbr = fmt.get('tbr')  # kilobits/sec
+    if tbr and duration_seconds:
+        return int((float(tbr) * 1000 / 8) * float(duration_seconds))
+    return None
 
 # ── Emit helpers ──
 def emit(**kwargs):
@@ -119,6 +162,91 @@ def files_matching_prefix(out_dir: Path, prefix: str) -> list[Path]:
     return [p for p in out_dir.iterdir() if p.name.startswith(f'{prefix}. ')]
 
 
+
+# ── File-size progress monitor ────────────────────────────────────────────────
+def monitored_bytes_for_prefix(out_dir: Path, prefix: str) -> int:
+    """
+    Sum bytes for any output/temp files starting with '<prefix>. '.
+    yt-dlp may write .part/.ytdl/temp files while post-processing, so this is
+    more reliable for Panopto HLS than yt-dlp's Python progress hooks.
+    """
+    total = 0
+    for p in out_dir.iterdir():
+        if p.name.startswith(f'{prefix}. '):
+            try:
+                total += p.stat().st_size
+            except OSError:
+                pass
+    return total
+
+
+def start_filesize_monitor(out_dir: Path, prefix: str, total_bytes: int | None, stop_event: threading.Event):
+    """
+    Emit progress based on observed file size.
+
+    yt-dlp's Python progress hooks do not reliably fire for this Panopto HLS
+    path, so we monitor files beginning with '<prefix>. ' instead.
+
+    Smoothing choices:
+      - emit on a fixed 0.5s cadence
+      - keep downloaded bytes monotonic
+      - compute speed from deltas
+      - smooth speed with an exponential moving average
+      - estimate ETA from smoothed speed
+    """
+    if not total_bytes or total_bytes <= 0:
+        return None
+
+    def run():
+        interval = 0.5
+        alpha = 0.25  # EMA smoothing factor; lower = smoother, slower to react
+
+        last_time = time.time()
+        last_bytes = 0
+        max_bytes = 0
+        ema_speed = 0.0
+
+        while not stop_event.is_set():
+            now = time.time()
+            observed = monitored_bytes_for_prefix(out_dir, prefix)
+
+            # File size can briefly shrink during rename/post-process. Never
+            # show backwards progress.
+            max_bytes = max(max_bytes, observed)
+            downloaded = min(max_bytes, total_bytes)
+
+            elapsed = max(now - last_time, 0.001)
+            delta = max(downloaded - last_bytes, 0)
+            instant_speed = delta / elapsed
+
+            if instant_speed > 0:
+                ema_speed = instant_speed if ema_speed <= 0 else (alpha * instant_speed + (1 - alpha) * ema_speed)
+            else:
+                # Decay slowly during segment stalls / post-processing pauses.
+                ema_speed *= 0.90
+
+            percent = min(99.0, (downloaded / total_bytes) * 100)
+            remaining = max(total_bytes - downloaded, 0)
+            eta = int(remaining / ema_speed) if ema_speed > 1 else 0
+
+            emit(
+                type='progress',
+                percent=round(percent, 1),
+                eta_seconds=eta,
+                speed_bps=int(ema_speed),
+                downloaded_bytes=int(downloaded),
+                total_bytes=int(total_bytes),
+            )
+
+            last_time = now
+            last_bytes = downloaded
+            stop_event.wait(interval)
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    return t
+
+
 # ── Progress hook ──
 _last_progress = [0.0]  # rate-limit to ~1/sec
 
@@ -126,7 +254,7 @@ _last_progress = [0.0]  # rate-limit to ~1/sec
 def progress_hook(d):
     if d['status'] == 'downloading':
         now = time.time()
-        if now - _last_progress[0] < 1.0:
+        if now - _last_progress[0] < 0.25:
             return
         _last_progress[0] = now
         total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
@@ -233,19 +361,83 @@ def main() -> int:
         else:
             ydl_opts['cookiesfrombrowser'] = (cookie_arg, None, None, None)
 
-    emit(type='info', message='Starting download...')
+    emit(type='info', message='Fetching video metadata...')
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(target_url, download=True)
-            final_path = None
-            if info.get('requested_downloads'):
-                final_path = info['requested_downloads'][0].get('filepath')
-            if not final_path:
-                candidates = files_matching_prefix(out_dir, prefix)
-                if candidates:
-                    final_path = str(max(candidates, key=lambda p: p.stat().st_mtime))
-            emit(type='done', path=final_path or str(out_dir))
+            # Probe without downloading to emit metadata for the UI.
+            probe = ydl.extract_info(target_url, download=False)
+            selected = pick_metadata_format(probe, args.quality)
+            original_title = probe.get('title', '')
+            duration_seconds = probe.get('duration')
+            metadata_filesize = estimate_filesize_bytes(selected, duration_seconds)
+            emit(
+                type='metadata',
+                title=original_title,
+                width=selected.get('width') if selected else None,
+                height=selected.get('height') if selected else None,
+                filesize=metadata_filesize,
+                duration_seconds=duration_seconds,
+                format_id=selected.get('format_id') if selected else None,
+                fps=selected.get('fps') if selected else None,
+            )
+
+            # Wait for user confirmation:
+            #   {"action": "confirm", "title": "optional edited title"}
+            #   {"action": "cancel"}
+            confirm_line = sys.stdin.readline().strip()
+            try:
+                confirm_msg = json.loads(confirm_line) if confirm_line else {'action': 'cancel'}
+            except json.JSONDecodeError:
+                confirm_msg = {'action': 'cancel'}
+
+            if confirm_msg.get('action') != 'confirm':
+                emit(type='error', message='cancelled by user')
+                return 1
+
+            edited_title = (confirm_msg.get('title') or original_title).strip()
+            if edited_title != original_title:
+                safe = edited_title.replace('%', '%%')
+                ydl_opts['outtmpl'] = str(out_dir / f'{prefix}. {safe}.%(ext)s')
+
+            emit(type='info', message='Starting download...')
+            emit(
+                type='progress',
+                percent=0,
+                eta_seconds=0,
+                speed_bps=0,
+                downloaded_bytes=0,
+                total_bytes=metadata_filesize or 0,
+            )
+        # Fresh instance so any changed outtmpl takes effect.
+        stop_monitor = threading.Event()
+        monitor = start_filesize_monitor(out_dir, prefix, metadata_filesize, stop_monitor)
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl2:
+                info = ydl2.extract_info(target_url, download=True)
+        finally:
+            stop_monitor.set()
+            if monitor:
+                monitor.join(timeout=1.0)
+
+        final_path = None
+        if info.get('requested_downloads'):
+            final_path = info['requested_downloads'][0].get('filepath')
+        if not final_path:
+            candidates = files_matching_prefix(out_dir, prefix)
+            if candidates:
+                final_path = str(max(candidates, key=lambda p: p.stat().st_mtime))
+
+        # Emit a final 100% progress event before done.
+        emit(
+            type='progress',
+            percent=100,
+            eta_seconds=0,
+            speed_bps=0,
+            downloaded_bytes=metadata_filesize or 0,
+            total_bytes=metadata_filesize or 0,
+        )
+        emit(type='done', path=final_path or str(out_dir))
     except Exception as e:
         emit(type='error', message=f'{type(e).__name__}: {e}')
         return 1

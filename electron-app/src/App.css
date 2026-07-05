@@ -1864,7 +1864,7 @@ body {
 .panopto-progress-bar {
   height: 100%;
   background: var(--unc-blue);
-  transition: width 0.3s;
+  transition: width 0.6s ease-out;
 }
 
 .panopto-progress-stats {
@@ -1955,3 +1955,40 @@ body {
   padding: 4px 2px 0;
   line-height: 1.4;
 }
+cat >> electron-app/src/App.css <<'EOF'
+
+.panopto-metadata-label {
+  color: var(--unc-blue);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.panopto-metadata-title-input {
+  font-size: 13px;
+  font-weight: 500;
+  width: 100%;
+}
+
+.panopto-metadata-preview {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-top: 4px;
+}
+
+.panopto-metadata-preview code {
+  background: var(--bg-surface);
+  padding: 1px 6px;
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-family: monospace;
+}
+
+.panopto-metadata-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+EOF
