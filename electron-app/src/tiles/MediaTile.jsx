@@ -1,13 +1,13 @@
 import TileWithFallback from "./TileWithFallback";
-import PanoptoDownloader from "./PanoptoDownloader";
+import MediaWorkbench from "./MediaWorkbench";
 
 export default function MediaTile() {
   return (
     <TileWithFallback
       domain="media"
       title="Media"
-      componentName="Panopto Downloader"
-      BespokeComponent={PanoptoDownloader}
+      componentName="Media Workbench"
+      BespokeComponent={MediaWorkbench}
     />
   );
 }
