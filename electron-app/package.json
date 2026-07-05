@@ -1,7 +1,7 @@
 {
   "name": "heelworks",
   "productName": "Heelworks",
-  "version": "1.0.0",
+  "version": "0.5.0",
   "description": "Heelworks — personal toolkit launcher for macOS. Documents, Vault, Media, and AI tools under one roof.",
   "main": ".vite/build/main.js",
   "private": true,
