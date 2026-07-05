@@ -65,6 +65,19 @@ export function wasStreamStopped() {
 }
 
 /**
+ * Test helper: reset only the stream state (handlers, args, flags) without
+ * wiping vi.fn implementations. Use in beforeEach for components that
+ * captured window.electronAPI methods at module load.
+ */
+export function resetStreamState() {
+  streamState.lineHandlers.clear();
+  streamState.exitHandlers.clear();
+  streamState.lastStartArgs = null;
+  streamState.inputLog = [];
+  streamState.stopped = false;
+}
+
+/**
  * Install a fresh window.electronAPI mock. Called from setup.ts before each test.
  */
 export function installElectronAPIMock() {
