@@ -99,8 +99,8 @@ export function installElectronAPIMock() {
 
     // ---- Dialogs & filesystem ----
     PickFolder: vi.fn(async () => "/mock/picked/folder"),
-    PickFile: vi.fn(async () => "/mock/picked/file.pdf"),
     ListDir: vi.fn(async () => []),
+    PickFile: vi.fn(async () => "/mock/picked/file.pdf"),
     SaveFile: vi.fn(async () => ({ saved: true, path: "/mock/saved" })),
     OpenExternal: vi.fn(async () => ({ opened: true })),
 
@@ -121,6 +121,16 @@ export function installElectronAPIMock() {
     vaultStart: vi.fn(async () => ({ started: true })),
     vaultStop: vi.fn(async () => ({ stopped: true })),
     vaultQuery: vi.fn(async () => ({})),
+
+    RunScript: vi.fn(async () => ({ output: "ok" })),
+    AnalyzeBookmarks: vi.fn(async () => ({
+      info: "3 chapters detected",
+      entries: [
+        [1, "Introduction"],
+        [12, "Chapter 1"],
+        [45, "Chapter 2"],
+      ],
+    })),
   };
 
   // @ts-expect-error — attaching to window for jsdom
@@ -132,6 +142,7 @@ export function installElectronAPIMock() {
  */
 export function resetElectronAPIMock() {
   streamState = freshState();
-  // @ts-expect-error
-  delete window.electronAPI;
+  // Do NOT delete window.electronAPI — components that captured its methods
+  // at module load time still hold references. Just reset the stream state;
+  // per-test method reset happens via installElectronAPIMock() in beforeEach.
 }
