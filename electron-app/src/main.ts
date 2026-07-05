@@ -526,6 +526,16 @@ ipcMain.handle("stream-stop", async () => {
   return { stopped: true };
 });
 
+// List files in a directory (used by Panopto downloader for auto-increment)
+ipcMain.handle("list-dir", async (_e, dirPath: string) => {
+  try {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    return entries.filter((e) => e.isFile()).map((e) => e.name);
+  } catch (e: any) {
+    return { error: e.message };
+  }
+});
+
 app.on("before-quit", killStreamProc);
 
 // Kill vault proc when app quits.

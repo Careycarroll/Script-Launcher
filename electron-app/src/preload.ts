@@ -32,6 +32,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.on("stream-exit", (_e, info) => cb(info));
   },
 
+  ListDir: (dirPath: string) => ipcRenderer.invoke("list-dir", dirPath),
+
   offStreamLine: () => ipcRenderer.removeAllListeners("stream-line"),
   offStreamExit: () => ipcRenderer.removeAllListeners("stream-exit"),
 
