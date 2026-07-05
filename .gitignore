@@ -41,3 +41,7 @@ electron-app/resources/bin/
 __pycache__/
 *.pyc
 *.pyo
+
+# macOS Finder metadata
+.DS_Store
+**/.DS_Store
