@@ -34,11 +34,11 @@ const CONTAINERS = [
   { value: "webm", label: "WebM" },
 ];
 
-function isLikelyUrl(s) {
+export function isLikelyUrl(s) {
   return /^https?:\/\//i.test(s || "");
 }
 
-function looksLikePlaylistUrl(s) {
+export function looksLikePlaylistUrl(s) {
   const u = (s || "").toLowerCase();
   return (
     u.includes("list=") ||
@@ -80,7 +80,7 @@ function formatDuration(seconds) {
     : `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-function compactIndexes(indexes) {
+export function compactIndexes(indexes) {
   const xs = [...new Set(indexes.map((x) => Number(x)).filter(Boolean))].sort(
     (a, b) => a - b,
   );
