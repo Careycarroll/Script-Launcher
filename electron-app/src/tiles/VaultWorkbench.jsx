@@ -104,6 +104,20 @@ export default function VaultWorkbench() {
     try {
       await VaultStart(vaultPath);
       setStatus("running");
+      // Auto-reindex immediately so the user lands in a usable state
+      // without a second click. Manual Reindex button remains available
+      // for re-runs after vault changes.
+      try {
+        await VaultQuery({ id: nextId(), method: "reindex", params: {} });
+        const idx = await VaultQuery({
+          id: nextId(),
+          method: "get_index",
+          params: {},
+        });
+        setIndex(idx);
+      } catch (e) {
+        setError(String(e?.message || e));
+      }
     } catch (e) {
       setStatus("error");
       setError(String(e?.message || e));
@@ -169,6 +183,15 @@ export default function VaultWorkbench() {
       defaultName: "vault-index.json",
       content: JSON.stringify(index, null, 2),
       filters: [{ name: "JSON", extensions: ["json"] }],
+    });
+  }
+
+  async function exportTXT() {
+    if (!index) return;
+    await SaveFile({
+      defaultName: "vault-index.txt",
+      content: JSON.stringify(index, null, 2),
+      filters: [{ name: "Text", extensions: ["txt"] }],
     });
   }
 
@@ -333,6 +356,9 @@ export default function VaultWorkbench() {
                 <span className="vault-export-label">Export:</span>
                 <button className="btn-secondary" onClick={exportJSON}>
                   JSON
+                </button>
+                <button className="btn-secondary" onClick={exportTXT}>
+                  TXT
                 </button>
                 <button className="btn-secondary" onClick={exportGraphML}>
                   GraphML
