@@ -1,0 +1,6 @@
+pymupdf
+pikepdf
+Pillow
+python-pptx
+yt-dlp
+piper-tts==1.4.2

@@ -40,7 +40,8 @@ body {
 /* ── Layout ────────────────────────────────────────────────────────────────── */
 .app {
   display: flex;
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
@@ -307,6 +308,14 @@ body {
 
 .output-panel.error {
   color: var(--tokyo-red);
+}
+
+
+/* Registry detail layout: header/footer fixed, arguments scroll */
+.detail > .args-section {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /* ── Footer ────────────────────────────────────────────────────────────────── */
@@ -828,6 +837,7 @@ body {
 /* ── App body wrapper ──────────────────────────────────────────────────── */
 .app-body {
   flex: 1;
+  min-height: 0;
   display: flex;
   overflow: hidden;
 }
