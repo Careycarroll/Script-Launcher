@@ -52,13 +52,18 @@
             "label": "PDF files",
             "filePicker": true,
             "multiFile": true,
-            "extensions": ["pdf"]
+            "extensions": [
+              "pdf"
+            ]
           },
           {
             "label": "Layout",
             "flag": "--pdf_to_txt-layout",
             "default": "layout",
-            "options": ["layout", "plain"]
+            "options": [
+              "layout",
+              "plain"
+            ]
           }
         ],
         "operation": "pdf_to_txt"
@@ -77,7 +82,14 @@
             "filePicker": true,
             "dirPicker": true,
             "multiFile": true,
-            "extensions": ["png", "jpg", "jpeg", "tif", "tiff", "bmp"]
+            "extensions": [
+              "png",
+              "jpg",
+              "jpeg",
+              "tif",
+              "tiff",
+              "bmp"
+            ]
           },
           {
             "label": "Output filename",
@@ -88,7 +100,11 @@
             "label": "Page size",
             "flag": "--images_to_pdf-page_size",
             "default": "auto",
-            "options": ["auto", "letter", "a4"]
+            "options": [
+              "auto",
+              "letter",
+              "a4"
+            ]
           }
         ],
         "operation": "images_to_pdf"
@@ -107,13 +123,20 @@
             "filePicker": true,
             "dirPicker": true,
             "multiFile": true,
-            "extensions": ["pptx"]
+            "extensions": [
+              "pptx"
+            ]
           },
           {
             "label": "Image quality",
             "flag": "--pptx_to_pdf-compress",
             "default": "medium",
-            "options": ["none", "small", "medium", "large"]
+            "options": [
+              "none",
+              "small",
+              "medium",
+              "large"
+            ]
           }
         ],
         "operation": "pptx_to_pdf"
@@ -132,20 +155,30 @@
             "filePicker": true,
             "dirPicker": true,
             "multiFile": true,
-            "extensions": ["pptx"]
+            "extensions": [
+              "pptx"
+            ]
           },
           {
             "label": "Image quality",
             "flag": "--pptx_to_pdf-compress",
             "default": "medium",
-            "options": ["none", "small", "medium", "large"],
+            "options": [
+              "none",
+              "small",
+              "medium",
+              "large"
+            ],
             "tooltip": "DPI for embedded images in the intermediate PDF. medium = 150 DPI (balanced). small = 72 DPI (smallest). large = 300 DPI (print quality). none = PowerPoint raw."
           },
           {
             "label": "Text layout",
             "flag": "--pdf_to_txt-layout",
             "default": "layout",
-            "options": ["layout", "plain"],
+            "options": [
+              "layout",
+              "plain"
+            ],
             "tooltip": "layout preserves columns and tables via row reconstruction. plain extracts continuous reading-order text."
           },
           {
@@ -182,7 +215,9 @@
             "filePicker": true,
             "dirPicker": true,
             "multiFile": true,
-            "extensions": ["pdf"]
+            "extensions": [
+              "pdf"
+            ]
           },
           {
             "label": "Output filename",
@@ -193,7 +228,10 @@
             "label": "Bookmarks",
             "flag": "--pdf_merge-bookmarks",
             "default": "yes",
-            "options": ["yes", "no"],
+            "options": [
+              "yes",
+              "no"
+            ],
             "tooltip": "yes (default) adds a bookmark per source file in the merged PDF, named after the source filename. no = raw concatenation."
           }
         ]
@@ -213,7 +251,9 @@
             "filePicker": true,
             "dirPicker": true,
             "multiFile": true,
-            "extensions": ["pdf"]
+            "extensions": [
+              "pdf"
+            ]
           }
         ]
       },
@@ -230,7 +270,9 @@
           {
             "label": "PDF file",
             "filePicker": true,
-            "extensions": ["pdf"]
+            "extensions": [
+              "pdf"
+            ]
           },
           {
             "label": "Bookmark list (page:title per line)",
@@ -266,13 +308,19 @@
           {
             "label": "PDF file",
             "filePicker": true,
-            "extensions": ["pdf"]
+            "extensions": [
+              "pdf"
+            ]
           },
           {
             "label": "Mode",
             "flag": "--pdf_split-mode",
             "default": "bookmark",
-            "options": ["bookmark", "range", "every"],
+            "options": [
+              "bookmark",
+              "range",
+              "every"
+            ],
             "tooltip": "bookmark = split at each top-level bookmark. range = explicit page ranges. every = uniform N-page chunks."
           },
           {
@@ -305,6 +353,78 @@
             "flag": "--out-dir",
             "placeholder": "Same as input folder",
             "tooltip": "Where to save the split files + audit. Defaults to the source PDF's folder."
+          }
+        ]
+      },
+      {
+        "name": "Text → Audio",
+        "domain": "documents",
+        "description": "Convert a plain text file to spoken audio using local Piper TTS",
+        "path": "python/scripts/tts_piper.py",
+        "runtime": "python",
+        "help": "Uses bundled Piper text-to-speech to synthesize a .wav file from a .txt input. Ryan, HFC Female, and Bryce voices are available. Output defaults beside the input unless an output folder is selected.",
+        "interactive": false,
+        "argDefs": [
+          {
+            "label": "Text file",
+            "filePicker": true,
+            "extensions": [
+              "txt"
+            ]
+          },
+          {
+            "label": "Voice",
+            "flag": "--voice",
+            "default": "Ryan",
+            "options": [
+              "Ryan",
+              "HFC Female",
+              "Bryce"
+            ],
+            "tooltip": "Piper voice model to use."
+          },
+          {
+            "label": "Output folder",
+            "type": "outputDir",
+            "flag": "--out-dir",
+            "placeholder": "Same as input folder",
+            "tooltip": "Where to save the generated .wav file."
+          },
+          {
+            "label": "Output filename",
+            "flag": "--out",
+            "placeholder": "Defaults to input filename + .wav",
+            "tooltip": "Optional output filename. .wav is added if omitted."
+          },
+          {
+            "label": "Speed / length scale",
+            "type": "number",
+            "flag": "--length-scale",
+            "default": "1.0",
+            "min": "0.5",
+            "max": "2.0",
+            "step": "0.05",
+            "tooltip": "Lower is faster; higher is slower. Piper default is 1.0."
+          },
+          {
+            "label": "Sentence silence",
+            "type": "number",
+            "flag": "--sentence-silence",
+            "default": "0.2",
+            "min": "0",
+            "max": "2",
+            "step": "0.05",
+            "tooltip": "Seconds of silence after each sentence."
+          },
+          {
+            "label": "Volume",
+            "type": "number",
+            "flag": "--volume",
+            "default": "1.0",
+            "min": "0.1",
+            "max": "3.0",
+            "step": "0.1",
+            "tooltip": "Volume multiplier."
           }
         ]
       }
