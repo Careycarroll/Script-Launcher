@@ -1,18 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import ForceGraph2D from "react-force-graph-2d";
-import TerminalPanel from "../Terminal";
-const {
-  VaultStart,
-  VaultQuery,
-  VaultStop,
-  PickFolder,
-  GetGroups,
-  RunScript,
-  PtyCreate,
-  PtyKill,
-  SaveFile,
-  OpenExternal,
-} = window.electronAPI;
+const { VaultStart, VaultQuery, VaultStop, PickFolder, SaveFile, OpenExternal } = window.electronAPI;
 
 const STORAGE_KEY = "vault-workbench-path";
 const VAULT_NAME_KEY = "vault-workbench-name";
@@ -43,29 +31,9 @@ export default function VaultWorkbench() {
   const [error, setError] = useState("");
   const [index, setIndex] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [alsoInDomain, setAlsoInDomain] = useState([]);
   const [activeTab, setActiveTab] = useState("Overview");
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
-  const [footerCollapsed, setFooterCollapsed] = useState(false);
-  const [terminalOpen, setTerminalOpen] = useState(false);
-  const [terminalReady, setTerminalReady] = useState(false);
-  const [terminalTitle, setTerminalTitle] = useState("");
-  const [pendingTerminalLaunch, setPendingTerminalLaunch] = useState(null);
 
-  useEffect(() => {
-    GetGroups().then((groups) => {
-      const flat = [];
-      groups.forEach((group, gi) => {
-        (group.scripts || []).forEach((s, si) => {
-          const d = s.domain || "documents";
-          if (d === "vault" && s.component !== "VaultWorkbench") {
-            flat.push({ ...s, groupIdx: gi, scriptIdx: si });
-          }
-        });
-      });
-      setAlsoInDomain(flat);
-    });
-  }, []);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, vaultPath);
@@ -80,16 +48,6 @@ export default function VaultWorkbench() {
     [],
   );
 
-  useEffect(() => {
-    if (!terminalReady || !pendingTerminalLaunch) return;
-
-    const launch = async () => {
-      await PtyCreate(pendingTerminalLaunch.path, pendingTerminalLaunch.args);
-      setPendingTerminalLaunch(null);
-    };
-
-    launch();
-  }, [terminalReady, pendingTerminalLaunch]);
 
   async function pickPath() {
     const p = await PickFolder();
@@ -155,27 +113,6 @@ export default function VaultWorkbench() {
     }
   }
 
-  async function closeTerminal() {
-    await PtyKill();
-    setTerminalOpen(false);
-    setTerminalReady(false);
-    setPendingTerminalLaunch(null);
-  }
-
-  async function runAlsoInDomain(entry) {
-    if (entry.interactive) {
-      setTerminalTitle(entry.name);
-      setTerminalOpen(true);
-      setTerminalReady(false);
-      setPendingTerminalLaunch({
-        path: entry.path,
-        args: [],
-      });
-    } else {
-      const result = await RunScript(entry.groupIdx, entry.scriptIdx, []);
-      alert(result.output || result.error || "(no output)");
-    }
-  }
 
   async function exportJSON() {
     if (!index) return;
@@ -427,55 +364,7 @@ export default function VaultWorkbench() {
         </>
       )}
 
-      {terminalOpen && (
-        <div className="embedded-terminal-panel">
-          <div className="embedded-terminal-header">
-            <span>Terminal — {terminalTitle}</span>
-            <button className="btn-secondary" onClick={closeTerminal}>
-              Close Terminal
-            </button>
-          </div>
-          <div className="embedded-terminal-body">
-            <TerminalPanel
-              autoStartShell={false}
-              onReady={() => setTerminalReady(true)}
-            />
-          </div>
-        </div>
-      )}
 
-      {alsoInDomain.length > 0 && (
-        <div className={`vault-also ${footerCollapsed ? "collapsed" : ""}`}>
-          <button
-            className="vault-collapse-toggle"
-            onClick={() => setFooterCollapsed((c) => !c)}
-            title={footerCollapsed ? "Expand footer" : "Collapse footer"}
-          >
-            {footerCollapsed ? "▴" : "▾"}
-          </button>
-          {!footerCollapsed && (
-            <>
-              <div className="vault-also-heading">Also in Vault</div>
-              <div className="vault-also-list">
-                {alsoInDomain.map((entry) => (
-                  <button
-                    key={entry.name}
-                    className="btn-secondary"
-                    onClick={() => runAlsoInDomain(entry)}
-                  >
-                    {entry.name}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-          {footerCollapsed && (
-            <span className="vault-collapse-summary">
-              Also in Vault ({alsoInDomain.length})
-            </span>
-          )}
-        </div>
-      )}
     </div>
   );
 }
