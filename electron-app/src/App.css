@@ -2279,3 +2279,172 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── Vault Domain Tabs ─────────────────────────────────────────────────────── */
+.vault-domain {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+
+.vault-domain-header {
+  padding: 22px 28px 14px;
+  border-bottom: 1px solid rgba(122, 162, 247, 0.12);
+}
+
+.vault-domain-header h1 {
+  color: var(--text-heading);
+  font-size: 22px;
+  margin-bottom: 4px;
+}
+
+.vault-domain-header p {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.vault-domain-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 12px 28px;
+  border-bottom: 1px solid rgba(122, 162, 247, 0.12);
+  background: rgba(13, 17, 23, 0.22);
+  flex-shrink: 0;
+}
+
+.vault-domain-tab {
+  border: 1px solid rgba(75, 156, 211, 0.24);
+  border-radius: 999px;
+  background: rgba(75, 156, 211, 0.08);
+  color: var(--text-primary);
+  padding: 8px 13px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.vault-domain-tab:hover {
+  background: rgba(75, 156, 211, 0.16);
+  color: var(--tokyo-cyan);
+}
+
+.vault-domain-tab.active {
+  background: var(--unc-blue);
+  border-color: var(--unc-blue);
+  color: #fff;
+}
+
+.vault-domain-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+}
+
+.vault-domain-panel {
+  flex: 1;
+  min-height: 0;
+  padding: 24px 28px;
+  overflow: auto;
+}
+
+.vault-domain-card {
+  background: var(--bg-card);
+  border: 1px solid rgba(122, 162, 247, 0.16);
+  border-radius: 12px;
+  padding: 18px;
+  max-width: 860px;
+}
+
+.vault-domain-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+}
+
+.vault-domain-terminal {
+  height: min(560px, 62vh);
+  margin-top: 18px;
+  border: 1px solid rgba(122, 162, 247, 0.18);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-deep);
+}
+
+/* ── Vault Domain Polish ───────────────────────────────────────────────────── */
+/* Keep the Vault domain header compact once the user is inside the domain. */
+.vault-domain-header {
+  padding: 10px 24px 8px;
+  min-height: unset;
+}
+
+.vault-domain-header h1 {
+  font-size: 16px;
+  line-height: 1.2;
+  margin-bottom: 2px;
+}
+
+.vault-domain-header p {
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+/* Slimmer peer-tab row. */
+.vault-domain-tabs {
+  padding: 8px 24px;
+  gap: 6px;
+}
+
+.vault-domain-tab {
+  padding: 6px 11px;
+  font-size: 12px;
+}
+
+/* Match Vault launch buttons to the rest of the app button language. */
+.btn-primary {
+  background: var(--unc-blue);
+  border: 1px solid rgba(75, 156, 211, 0.75);
+  border-radius: 6px;
+  padding: 8px 13px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    transform 0.05s;
+}
+
+.btn-primary:hover {
+  background: #5aaee4;
+  border-color: #7dcfff;
+}
+
+.btn-primary:active {
+  transform: translateY(1px);
+}
+
+.btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* Make the launch cards feel less like a second landing page. */
+.vault-domain-panel {
+  padding: 18px 24px;
+}
+
+.vault-domain-card {
+  padding: 16px;
+}
+
+.vault-domain-actions {
+  margin-top: 14px;
+}

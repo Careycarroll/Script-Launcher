@@ -1,13 +1,13 @@
 import TileWithFallback from "./TileWithFallback";
-import VaultWorkbench from "./VaultWorkbench";
+import VaultDomain from "./VaultDomain";
 
 export default function VaultTile() {
   return (
     <TileWithFallback
       domain="vault"
       title="Vault"
-      componentName="Vault Workbench"
-      BespokeComponent={VaultWorkbench}
+      componentName="Vault Domain"
+      BespokeComponent={VaultDomain}
     />
   );
 }
