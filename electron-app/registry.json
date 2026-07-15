@@ -427,6 +427,104 @@
             "tooltip": "Volume multiplier."
           }
         ]
+      },
+      {
+        "name": "PDF → Audio",
+        "domain": "documents",
+        "description": "Extract text from a PDF and convert it to spoken audio using local Piper TTS",
+        "path": "python/scripts/pdf_to_audio.py",
+        "runtime": "python",
+        "help": "Converts a PDF to text with docpipe, then synthesizes audio with Piper. WAV is produced directly; MP3/M4A/MP4 use ffmpeg transcoding.",
+        "interactive": false,
+        "argDefs": [
+          {
+            "label": "PDF file",
+            "filePicker": true,
+            "multiFile": true,
+            "extensions": [
+              "pdf"
+            ]
+          },
+          {
+            "label": "Voice",
+            "flag": "--voice",
+            "default": "Ryan",
+            "options": [
+              "Ryan",
+              "HFC Female",
+              "Bryce"
+            ],
+            "tooltip": "Piper voice model to use."
+          },
+          {
+            "label": "Text layout",
+            "flag": "--layout",
+            "default": "layout",
+            "options": [
+              "layout",
+              "plain"
+            ],
+            "tooltip": "layout preserves columns/tables; plain extracts continuous reading-order text."
+          },
+          {
+            "label": "Output format",
+            "flag": "--format",
+            "default": "wav",
+            "options": [
+              "wav",
+              "mp3",
+              "m4a",
+              "mp4"
+            ],
+            "tooltip": "WAV uses Piper output directly. MP3/M4A/MP4 require ffmpeg."
+          },
+          {
+            "label": "Output folder",
+            "type": "outputDir",
+            "flag": "--out-dir",
+            "placeholder": "Same as input folder",
+            "tooltip": "Where to save generated text/audio files."
+          },
+          {
+            "label": "Keep extracted text",
+            "type": "checkbox",
+            "flag": "--discard-text",
+            "default": true,
+            "invertFlag": true,
+            "checkboxLabel": "Keep the intermediate .txt file",
+            "tooltip": "Checked keeps the extracted .txt file. Unchecked deletes it after audio generation."
+          },
+          {
+            "label": "Speed / length scale",
+            "type": "number",
+            "flag": "--length-scale",
+            "default": "1.0",
+            "min": "0.5",
+            "max": "2.0",
+            "step": "0.05",
+            "tooltip": "Lower is faster; higher is slower. Piper default is 1.0."
+          },
+          {
+            "label": "Sentence silence",
+            "type": "number",
+            "flag": "--sentence-silence",
+            "default": "0.2",
+            "min": "0",
+            "max": "2",
+            "step": "0.05",
+            "tooltip": "Seconds of silence after each sentence."
+          },
+          {
+            "label": "Volume",
+            "type": "number",
+            "flag": "--volume",
+            "default": "1.0",
+            "min": "0.1",
+            "max": "3.0",
+            "step": "0.1",
+            "tooltip": "Volume multiplier."
+          }
+        ]
       }
     ]
   },
