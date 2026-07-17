@@ -1,16 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 vi.mock("../src/tiles/VaultWorkbench.jsx", () => ({
   default: () => <div>Mock Vault Workbench</div>,
 }));
 
-vi.mock("../src/Terminal.jsx", () => ({
-  default: ({ onReady }: { onReady?: () => void }) => {
-    onReady?.();
-    return <div>Mock Terminal</div>;
-  },
-}));
+vi.mock("../src/Terminal.jsx", async () => {
+  const React = await import("react");
+  return {
+    default: ({ onReady }: { onReady?: () => void }) => {
+      React.useEffect(() => {
+        onReady?.();
+      }, [onReady]);
+      return <div>Mock Terminal</div>;
+    },
+  };
+});
 
 import VaultDomain from "../src/tiles/VaultDomain.jsx";
 
@@ -36,6 +41,8 @@ const groups = [
 
 beforeEach(() => {
   window.electronAPI.GetGroups = vi.fn(async () => groups);
+  window.electronAPI.PickFile = vi.fn(async () => "/mock/vault/_Example Book.md");
+  window.electronAPI.PickFolder = vi.fn(async () => "/mock/vault/Example Book");
   window.electronAPI.PtyCreate = vi.fn(async () => true);
   window.electronAPI.PtyKill = vi.fn(async () => true);
 });
@@ -80,13 +87,65 @@ describe("VaultDomain", () => {
     expect(screen.getByText("Mock Vault Workbench")).toBeInTheDocument();
   });
 
-  it("switches to Book Notes placeholder", () => {
+  it("switches to Book Notes form", () => {
     render(<VaultDomain />);
 
     fireEvent.click(screen.getByRole("tab", { name: "Book Notes" }));
 
     expect(screen.getAllByText("Book Notes").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText(/coming in v0.6/i)).toBeInTheDocument();
+    expect(screen.getByText(/Scaffold all chapter notes/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Create Workspace/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Pick Note/i })).toBeInTheDocument();
+  });
+
+  it("picks a base note and launches Book Notes create command", async () => {
+    render(<VaultDomain />);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Book Notes" }));
+    fireEvent.click(screen.getByRole("button", { name: /Pick Note/i }));
+    await waitFor(() =>
+      expect(screen.getByDisplayValue("/mock/vault/_Example Book.md")).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Create Workspace/i }));
+
+    expect(await screen.findByText("Mock Terminal")).toBeInTheDocument();
+    expect(window.electronAPI.PtyCreate).toHaveBeenCalledWith(
+      "python/scripts/book_notes.py",
+      [
+        "create",
+        "--base-note",
+        "/mock/vault/_Example Book.md",
+        "--chapter-count",
+        "12",
+      ],
+    );
+  });
+
+  it("passes pasted chapter titles to Book Notes create command", async () => {
+    render(<VaultDomain />);
+
+    fireEvent.click(screen.getByRole("tab", { name: "Book Notes" }));
+    fireEvent.click(screen.getByRole("button", { name: /Pick Note/i }));
+    await waitFor(() =>
+      expect(screen.getByDisplayValue("/mock/vault/_Example Book.md")).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByLabelText(/Pasted chapter list/i));
+    fireEvent.change(screen.getByLabelText(/Chapter titles/i), {
+      target: { value: "Introduction\nThe Big Idea" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Create Workspace/i }));
+
+    expect(await screen.findByText("Mock Terminal")).toBeInTheDocument();
+    expect(window.electronAPI.PtyCreate).toHaveBeenCalledWith(
+      "python/scripts/book_notes.py",
+      [
+        "create",
+        "--base-note",
+        "/mock/vault/_Example Book.md",
+        "--chapters",
+        "Introduction\nThe Big Idea",
+      ],
+    );
   });
 
   it("launches Manage Vault through the embedded terminal path", async () => {

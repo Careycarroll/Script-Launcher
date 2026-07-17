@@ -212,7 +212,11 @@ ipcMain.handle(
       // Terminal.app and preserves PATH/login-shell expectations for TUI
       // wrappers such as manage_vault.
       const shell = process.env.SHELL || "/bin/zsh";
-      const command = [scriptPath, ...args].map(shellQuote).join(" ");
+      const commandParts =
+        !path.isAbsolute(scriptPath) && scriptPath.startsWith("python/")
+          ? [bundledPython, path.join(bundledResources, scriptPath), ...args]
+          : [scriptPath, ...args];
+      const command = commandParts.map(shellQuote).join(" ");
       activePty = pty.spawn(shell, ["-lc", `exec ${command}`], {
         name: "xterm-256color",
         cols: 120,

@@ -2448,3 +2448,27 @@ body {
 .vault-domain-actions {
   margin-top: 14px;
 }
+
+/* ── Book Notes Form ───────────────────────────────────────────────────────── */
+.book-notes-form {
+  margin-top: 16px;
+}
+
+.book-notes-mode {
+  display: flex;
+  gap: 18px;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.book-notes-mode label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.error-text {
+  color: var(--tokyo-red);
+  font-size: 12px;
+  margin-top: 8px;
+}
