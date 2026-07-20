@@ -135,6 +135,15 @@ export default function RegistryTile({ domain, title }) {
     const positional = [];
     (script.argDefs || []).forEach((def, i) => {
       if (def.multiFile) return;
+      if (def.showWhen) {
+        const sw = def.showWhen;
+        const targetIdx = (script.argDefs || []).findIndex(d => d.label === sw.field);
+        if (targetIdx >= 0) {
+          const targetVal = args[targetIdx] ?? script.argDefs[targetIdx].default;
+          const hidden = sw.in ? !sw.in.includes(targetVal) : targetVal !== sw.value;
+          if (hidden) return;
+        }
+      }
       const v = args[i];
       if (def.hidden && def.flag && def.default === true) {
         flags.push(def.flag);
