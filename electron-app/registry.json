@@ -429,9 +429,9 @@
         "name": "Text → Audio",
         "domain": "documents",
         "description": "Convert a plain text file to spoken audio using local Piper TTS",
-        "path": "python/scripts/tts_piper.py",
+        "path": "python/scripts/text_to_audio.py",
         "runtime": "python",
-        "help": "Uses bundled Piper text-to-speech to synthesize a .wav file from a .txt input. Ryan, HFC Female, and Bryce voices are available. Output defaults beside the input unless an output folder is selected.",
+        "help": "Converts a .txt file to audio using local Piper TTS. WAV is generated first, then transcoded via ffmpeg for mp3/m4a/mp4.",
         "interactive": false,
         "argDefs": [
           {
@@ -451,6 +451,56 @@
               "Bryce"
             ],
             "tooltip": "Piper voice model to use."
+          },
+          {
+            "label": "Format",
+            "flag": "--format",
+            "default": "m4a",
+            "options": [
+              "wav",
+              "mp3",
+              "m4a",
+              "mp4"
+            ],
+            "tooltip": "wav uses Piper output directly. mp3/m4a/mp4 require ffmpeg."
+          },
+          {
+            "label": "Bitrate (kbps)",
+            "flag": "--bitrate",
+            "default": "192",
+            "options": [
+              "64",
+              "96",
+              "128",
+              "192",
+              "256",
+              "320"
+            ],
+            "showWhen": {
+              "field": "Format",
+              "in": [
+                "mp3",
+                "m4a",
+                "mp4"
+              ]
+            },
+            "tooltip": "Used for mp3/m4a/mp4. Ignored for wav."
+          },
+          {
+            "label": "Keep intermediate WAV",
+            "type": "checkbox",
+            "flag": "--keep-wav",
+            "default": false,
+            "checkboxLabel": "Preserve the intermediate .wav",
+            "showWhen": {
+              "field": "Format",
+              "in": [
+                "mp3",
+                "m4a",
+                "mp4"
+              ]
+            },
+            "tooltip": "Checked keeps the intermediate WAV file next to the transcoded output."
           },
           {
             "label": "Output folder",
@@ -528,7 +578,7 @@
           {
             "label": "Text layout",
             "flag": "--layout",
-            "default": "layout",
+            "default": "plain",
             "options": [
               "layout",
               "plain"
@@ -538,7 +588,7 @@
           {
             "label": "Output format",
             "flag": "--format",
-            "default": "wav",
+            "default": "m4a",
             "options": [
               "wav",
               "mp3",

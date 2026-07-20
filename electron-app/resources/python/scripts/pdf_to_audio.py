@@ -17,6 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Sequence
+import re
 
 VOICE_CHOICES = ("Ryan", "HFC Female", "Bryce")
 FORMAT_CHOICES = ("wav", "mp3", "m4a", "mp4")
@@ -119,6 +120,30 @@ def parse_first_output_path(stdout: str, fallback: Path) -> Path:
     return fallback
 
 
+
+def normalize_for_speech(text: str) -> str:
+    """Collapse layout-mode line breaks into speech-friendly prose.
+
+    - Rejoins hyphenated line breaks.
+    - Turns single line breaks inside paragraphs into spaces.
+    - Preserves blank-line paragraph breaks.
+    - Collapses runs of whitespace.
+    """
+    # Join words split across lines with a hyphen: "strat-\negy" -> "strategy"
+    text = re.sub(r"-\n(?=\w)", "", text)
+    # Preserve paragraph breaks as a sentinel.
+    text = re.sub(r"\n\s*\n+", "\uE000", text)
+    # Any remaining single line breaks -> spaces.
+    text = text.replace("\n", " ")
+    # Restore paragraph breaks.
+    text = text.replace("\uE000", "\n\n")
+    # Squash runs of spaces.
+    text = re.sub(r"[ \t]+", " ", text)
+    # Trim per-paragraph leading/trailing spaces.
+    text = "\n\n".join(seg.strip() for seg in text.split("\n\n"))
+    return text.strip() + "\n"
+
+
 def extract_text(pdf_path: Path, text_path: Path, layout: str) -> Path:
     cmd = [
         sys.executable,
@@ -193,6 +218,12 @@ def convert_one_pdf(args: argparse.Namespace, pdf_path: Path) -> Path:
     final_path = wav_path if args.format == "wav" else available_path(out_dir / f"{pdf_path.stem}.{args.format}")
 
     produced_text = extract_text(pdf_path, text_path, args.layout)
+    if not args.no_clean_text:
+        try:
+            cleaned = normalize_for_speech(produced_text.read_text(encoding="utf-8"))
+            produced_text.write_text(cleaned, encoding="utf-8")
+        except Exception as exc:
+            print(f"WARN: text cleanup skipped: {exc}", file=sys.stderr)
     produced_wav = synthesize_wav(
         produced_text,
         wav_path,
@@ -230,6 +261,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--layout", default="layout", choices=("layout", "plain"), help="PDF text extraction layout mode")
     parser.add_argument("--format", default="wav", choices=FORMAT_CHOICES, help="Output audio format")
     parser.add_argument("--out-dir", default="", help="Output directory; defaults beside each PDF")
+    parser.add_argument("--no-clean-text", action="store_true", help="Skip speech-friendly text cleanup")
     parser.add_argument("--discard-text", action="store_true", help="Delete intermediate .txt after audio generation")
     parser.add_argument("--keep-wav", action="store_true", help="For non-WAV output, keep the intermediate WAV")
     parser.add_argument("--length-scale", default="1.0", help="Piper length scale; lower is faster, higher is slower")
