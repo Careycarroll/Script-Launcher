@@ -22,10 +22,11 @@ export default function WidgetRenderer({ argDefs, args, setArg, pickFile, pickFo
         if (def.hidden) return null;
 
         if (def.showWhen) {
-          const targetIdx = argDefs.findIndex(d => d.label === def.showWhen.field);
+          const sw = def.showWhen;
+          const targetIdx = argDefs.findIndex(d => d.label === sw.field);
           if (targetIdx >= 0) {
             const targetVal = args[targetIdx] ?? argDefs[targetIdx].default;
-            if (targetVal !== def.showWhen.value) return null;
+            if (sw.in ? !sw.in.includes(targetVal) : targetVal !== sw.value) return null;
           }
         }
 

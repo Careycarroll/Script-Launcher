@@ -33,6 +33,75 @@
         "help": "Auto-classifies 3 Panopto .mp4 files by audio and bitrate, normalizes audio to EBU R128 (-16 LUFS), optionally overlays screen recording as PiP, and outputs a named session file. Place 3 .mp4 files in the Video Staging folder before running.",
         "interactive": true,
         "argDefs": []
+      },
+      {
+        "name": "Video → Audio",
+        "domain": "media",
+        "description": "Extract audio from a video file",
+        "path": "python/scripts/video_to_audio.py",
+        "runtime": "python",
+        "help": "Extracts audio from a single video using bundled or system ffmpeg. Supports mp3, m4a, and wav, with optional EBU R128 loudness normalization. Batch/queue mode is tracked separately (#88).",
+        "interactive": false,
+        "argDefs": [
+          {
+            "label": "Video file",
+            "filePicker": true,
+            "extensions": [
+              "mp4",
+              "mov",
+              "mkv",
+              "avi",
+              "m4v",
+              "webm"
+            ]
+          },
+          {
+            "label": "Format",
+            "flag": "--format",
+            "default": "mp3",
+            "options": [
+              "mp3",
+              "m4a",
+              "wav"
+            ]
+          },
+          {
+            "label": "Bitrate (kbps)",
+            "flag": "--bitrate",
+            "default": "192",
+            "options": [
+              "64",
+              "96",
+              "128",
+              "192",
+              "256",
+              "320"
+            ],
+            "showWhen": {
+              "field": "Format",
+              "in": [
+                "mp3",
+                "m4a"
+              ]
+            },
+            "tooltip": "Used for mp3/m4a. Ignored for wav."
+          },
+          {
+            "label": "Normalize loudness",
+            "type": "checkbox",
+            "flag": "--normalize",
+            "default": false,
+            "checkboxLabel": "Apply EBU R128 loudnorm",
+            "tooltip": "Adds -af loudnorm=I=-16:TP=-1.5:LRA=11 to ffmpeg."
+          },
+          {
+            "label": "Output folder",
+            "type": "outputDir",
+            "flag": "--out-dir",
+            "placeholder": "Same as input folder",
+            "tooltip": "Where to save the extracted audio. Defaults to the video's folder."
+          }
+        ]
       }
     ]
   },

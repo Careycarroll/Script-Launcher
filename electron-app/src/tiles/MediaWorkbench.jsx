@@ -1,10 +1,12 @@
 import { useState } from "react";
 import PanoptoDownloader from "./PanoptoDownloader";
 import GenericYtdlpDownloader from "./GenericYtdlpDownloader";
+import RegistryTile from "../RegistryTile";
 
 const TOOLS = [
   { key: "panopto", label: "Panopto", component: PanoptoDownloader },
   { key: "generic", label: "Generic yt-dlp", component: GenericYtdlpDownloader },
+  { key: "tools", label: "Tools", component: () => <RegistryTile domain="media" title="Media Tools" /> },
 ];
 
 export default function MediaWorkbench() {
