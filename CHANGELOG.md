@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Text → Audio** now supports mp3/m4a/mp4 output with bitrate control, via a text_to_audio.py wrapper.
 - **Video → Audio** Media tool for single-file extraction with mp3/m4a/wav output and optional EBU R128 loudness normalization.
 - **Text → Audio document tool** using local Piper TTS.
 - Bundled Piper voice models for Ryan, HFC Female, and Bryce.
