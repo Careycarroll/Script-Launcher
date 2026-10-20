@@ -144,9 +144,9 @@ export default function GenericYtdlpDownloader() {
     localStorage.setItem(BROWSER_KEY, browser);
   }, [browser]);
 
-  useEffect(() => {
-    if (!outDir) return;
-    ListDir(outDir)
+  function autoDetectPrefix(targetDir = outDir) {
+    if (!targetDir) return;
+    ListDir(targetDir)
       .then((entries) => {
         if (!Array.isArray(entries)) return;
         let maxN = 0;
@@ -157,7 +157,11 @@ export default function GenericYtdlpDownloader() {
         setPrefix((maxN + 1).toString().padStart(2, "0"));
       })
       .catch(() => {});
-  }, [outDir]);
+  }
+
+  useEffect(() => {
+    autoDetectPrefix(outDir);
+  }, [outDir, url]);
 
   useEffect(() => {
     navigator.clipboard
@@ -266,6 +270,7 @@ export default function GenericYtdlpDownloader() {
       else if (msg.type === "done") {
         setResult({ path: msg.path });
         appendLog(`✓ Saved: ${msg.path}`);
+        autoDetectPrefix(outDir);
       } else if (msg.type === "error") appendLog(`✗ ${msg.message}`);
     });
 

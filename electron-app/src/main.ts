@@ -6,16 +6,39 @@ import { execFile, spawn, ChildProcess } from "child_process";
 import fs from "fs";
 
 // ── Bundled binary path ───────────────────────────────────────────────────────
-const bundledBin = app.isPackaged
-  ? path.join(process.resourcesPath, "bin")
-  : path.join(app.getAppPath(), "resources", "bin");
+function resolveBundledBin(): string {
+  if (app.isPackaged) {
+    const packagedBin = path.join(process.resourcesPath, "bin");
+    if (fs.existsSync(packagedBin)) return packagedBin;
+    const devFallback = path.resolve(
+      process.resourcesPath,
+      "../../../../resources/bin",
+    );
+    if (fs.existsSync(devFallback)) return devFallback;
+    return packagedBin;
+  }
+  return path.join(app.getAppPath(), "resources", "bin");
+}
 
 // Root for bundled resources (python venv, python scripts, etc.)
 // Registry entries with runtime: "python" use paths relative to this root,
 // e.g. "python/scripts/docpipe.py" -> <bundledResources>/python/scripts/docpipe.py
-const bundledResources = app.isPackaged
-  ? process.resourcesPath
-  : path.join(app.getAppPath(), "resources");
+function resolveBundledResources(): string {
+  if (app.isPackaged) {
+    const packagedPython = path.join(process.resourcesPath, "python");
+    if (fs.existsSync(packagedPython)) return process.resourcesPath;
+    const devFallback = path.resolve(
+      process.resourcesPath,
+      "../../../../resources",
+    );
+    if (fs.existsSync(path.join(devFallback, "python"))) return devFallback;
+    return process.resourcesPath;
+  }
+  return path.join(app.getAppPath(), "resources");
+}
+
+const bundledBin = resolveBundledBin();
+const bundledResources = resolveBundledResources();
 
 const bundledPython = path.join(
   bundledResources,
@@ -114,6 +137,9 @@ ipcMain.handle(
       let output = "";
       proc.stdout.on("data", (d: Buffer) => (output += d.toString()));
       proc.stderr.on("data", (d: Buffer) => (output += d.toString()));
+      proc.on("error", (err: Error) => {
+        resolve({ output, error: `Failed to spawn process: ${err.message}` });
+      });
       proc.on("close", (code: number) => {
         resolve(
           code === 0 ? { output } : { output, error: `exit status ${code}` },
@@ -323,6 +349,13 @@ ipcMain.handle("analyze-bookmarks", (_event, pdfPath: string) => {
     );
     let stdout = "";
     let stderr = "";
+    proc.on("error", (err: Error) => {
+      resolve({
+        source: "error",
+        entries: [],
+        info: `Failed to spawn Python: ${err.message}`,
+      });
+    });
     proc.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
     proc.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
     proc.on("close", (code: number) => {
@@ -442,6 +475,15 @@ ipcMain.handle("vault-start", async (_e, vaultPath: string) => {
     process.stderr.write(`[vault_index] ${chunk.toString("utf8")}`);
   });
 
+  vaultProc.on("error", (err: Error) => {
+    console.error("[vault-start] spawn error:", err);
+    vaultPending.forEach((p) =>
+      p.reject(new Error(`Vault process failed to start: ${err.message}`)),
+    );
+    vaultPending.clear();
+    vaultProc = null;
+  });
+
   vaultProc.on("exit", () => {
     vaultPending.forEach((p) => p.reject(new Error("vault process exited")));
     vaultPending.clear();
@@ -520,6 +562,16 @@ ipcMain.handle(
 
     streamProc.stderr?.on("data", (chunk: Buffer) => {
       process.stderr.write(`[stream] ${chunk.toString("utf8")}`);
+    });
+
+    streamProc.on("error", (err: Error) => {
+      console.error("[stream-start] spawn error:", err);
+      win?.webContents.send("stream-line", {
+        type: "error",
+        error: `Failed to spawn process: ${err.message}`,
+      });
+      win?.webContents.send("stream-exit", { code: 1 });
+      streamProc = null;
     });
 
     streamProc.on("exit", (code) => {

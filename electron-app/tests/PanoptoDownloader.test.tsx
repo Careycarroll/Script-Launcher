@@ -158,6 +158,51 @@ describe("PanoptoDownloader — prefix auto-detect", () => {
       expect(prefixInput.value).toBe("01");
     });
   });
+
+  it("auto-detects and increments prefix when entering a new URL", async () => {
+    listDirMock.mockImplementation(async () => ["01. Foo.mp4"]);
+    render(<PanoptoDownloader />);
+    fireEvent.click(screen.getByRole("button", { name: /^Pick$/i }));
+    await waitFor(() => {
+      const prefixInput = screen.getByPlaceholderText("01") as HTMLInputElement;
+      expect(prefixInput.value).toBe("02");
+    });
+
+    // New file is now in the directory
+    listDirMock.mockImplementation(async () => ["01. Foo.mp4", "02. Bar.mp4"]);
+
+    // User enters a new link
+    fireEvent.change(screen.getByPlaceholderText(/panopto.com/i), {
+      target: {
+        value: "https://demo.panopto.com/Panopto/Pages/Viewer.aspx?id=second",
+      },
+    });
+
+    await waitFor(() => {
+      const prefixInput = screen.getByPlaceholderText("01") as HTMLInputElement;
+      expect(prefixInput.value).toBe("03");
+    });
+  });
+
+  it("auto-detects and increments prefix when download completes", async () => {
+    listDirMock.mockImplementation(async () => ["01. Foo.mp4"]);
+    render(<PanoptoDownloader />);
+    await primeReadyState();
+    fireEvent.click(screen.getByRole("button", { name: /^Download$/i }));
+    await waitFor(() => expect(streamStartMock).toHaveBeenCalled());
+
+    // File saved on disk
+    listDirMock.mockImplementation(async () => ["01. Foo.mp4", "02. Bar.mp4"]);
+
+    await act(async () => {
+      emitStreamLine({ type: "done", path: "/mock/out/02. Bar.mp4" });
+    });
+
+    await waitFor(() => {
+      const prefixInput = screen.getByPlaceholderText("01") as HTMLInputElement;
+      expect(prefixInput.value).toBe("03");
+    });
+  });
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -379,7 +424,9 @@ describe("PanoptoDownloader — done and cleanup", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Download$/i }));
     await waitFor(() => expect(streamStartMock).toHaveBeenCalled());
 
-    act(() => emitStreamLine({ type: "done", path: "/mock/out/01. Foo.mp4" }));
+    await act(async () => {
+      emitStreamLine({ type: "done", path: "/mock/out/01. Foo.mp4" });
+    });
 
     expect(
       screen.getByText(/Downloaded to \/mock\/out\/01\. Foo\.mp4/),
@@ -394,7 +441,9 @@ describe("PanoptoDownloader — done and cleanup", () => {
     await primeReadyState();
     fireEvent.click(screen.getByRole("button", { name: /^Download$/i }));
     await waitFor(() => expect(streamStartMock).toHaveBeenCalled());
-    act(() => emitStreamLine({ type: "done", path: "/mock/out/01. Foo.mp4" }));
+    await act(async () => {
+      emitStreamLine({ type: "done", path: "/mock/out/01. Foo.mp4" });
+    });
 
     fireEvent.click(screen.getByRole("button", { name: /Show in Finder/i }));
     await waitFor(() => expect(openExternalMock).toHaveBeenCalledTimes(1));
