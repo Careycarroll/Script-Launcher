@@ -95,10 +95,9 @@ export default function PanoptoDownloader() {
     localStorage.setItem(BROWSER_KEY, browser);
   }, [browser]);
 
-  // Auto-detect next NN. prefix whenever outDir changes.
-  useEffect(() => {
-    if (!outDir) return;
-    ListDir(outDir)
+  function autoDetectPrefix(targetDir = outDir) {
+    if (!targetDir) return;
+    ListDir(targetDir)
       .then((entries) => {
         if (!Array.isArray(entries)) return;
         let maxN = 0;
@@ -111,7 +110,12 @@ export default function PanoptoDownloader() {
       .catch(() => {
         /* ignore; user can still type manually */
       });
-  }, [outDir]);
+  }
+
+  // Auto-detect next NN. prefix whenever outDir or url changes.
+  useEffect(() => {
+    autoDetectPrefix(outDir);
+  }, [outDir, url]);
 
   useEffect(() => {
     navigator.clipboard
@@ -186,6 +190,7 @@ export default function PanoptoDownloader() {
       } else if (msg.type === "done") {
         setResult({ path: msg.path });
         appendLog(`✓ Saved: ${msg.path}`);
+        autoDetectPrefix(outDir);
       } else if (msg.type === "error") {
         appendLog(`✗ ${msg.message}`);
       }
