@@ -4,6 +4,8 @@ import importlib.util
 from pathlib import Path
 import pytest
 
+pytest.importorskip("yt_dlp")
+
 SCRIPT = Path(__file__).resolve().parents[1] / "resources" / "python" / "scripts" / "panopto_download.py"
 
 
