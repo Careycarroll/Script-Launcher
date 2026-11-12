@@ -32,6 +32,7 @@ Flags:
   --quality {best,1080p,720p}    Default: best
   --captions/--no-captions       Default: on
   --embed-subs/--no-embed-subs   Default: on (embed vtt into container)
+  --external-srt/--no-external-srt Default: on (save external .srt file)
   --browser NAME                 Default: zen (see BROWSERS)
   --concurrent-fragments N       Default: 4
   --retries N                    Default: 10
@@ -162,6 +163,55 @@ def files_matching_prefix(out_dir: Path, prefix: str) -> list[Path]:
     return [p for p in out_dir.iterdir() if p.name.startswith(f'{prefix}. ')]
 
 
+def normalize_external_srt(out_dir: Path, prefix: str) -> list[Path]:
+    """
+    Rename language-tagged subtitles (e.g. '01. Title.en.srt') to '01. Title.srt'
+    so video players automatically pair them with '01. Title.mp4'.
+    Returns list of normalized .srt paths.
+    """
+    renamed: list[Path] = []
+    pattern = re.compile(
+        rf'^{re.escape(prefix)}\.\s*(.+?)\.([a-z]{{2,3}}(?:[-_][A-Za-z0-9]+)?)\.srt$',
+        re.IGNORECASE,
+    )
+    for p in list(out_dir.iterdir()):
+        if not p.is_file():
+            continue
+        m = pattern.match(p.name)
+        if m:
+            base_title = m.group(1)
+            target = out_dir / f'{prefix}. {base_title}.srt'
+            if target != p:
+                if target.exists():
+                    try:
+                        target.unlink()
+                    except OSError:
+                        pass
+                try:
+                    p.rename(target)
+                    renamed.append(target)
+                except OSError:
+                    renamed.append(p)
+            else:
+                renamed.append(p)
+    return renamed
+
+
+def find_final_video_path(out_dir: Path, prefix: str) -> Optional[Path]:
+    """Find the downloaded video file starting with '<prefix>. '."""
+    video_exts = {'.mp4', '.mkv', '.webm', '.mov', '.m4v'}
+    candidates = [
+        p for p in files_matching_prefix(out_dir, prefix)
+        if p.is_file() and p.suffix.lower() in video_exts
+    ]
+    if candidates:
+        return max(candidates, key=lambda p: p.stat().st_mtime)
+    all_files = [p for p in files_matching_prefix(out_dir, prefix) if p.is_file()]
+    if all_files:
+        return max(all_files, key=lambda p: p.stat().st_mtime)
+    return None
+
+
 
 # ── File-size progress monitor ────────────────────────────────────────────────
 def monitored_bytes_for_prefix(out_dir: Path, prefix: str) -> int:
@@ -272,9 +322,8 @@ def progress_hook(d):
         emit(type='info', message='Download complete, post-processing...')
 
 
-# ── Main ──
-def main() -> int:
-    parser = argparse.ArgumentParser()
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description='Download Panopto lecture videos via yt-dlp.')
     parser.add_argument('url')
     parser.add_argument('--out-dir', required=True, type=Path)
     parser.add_argument('--prefix', required=True, help='Two-digit number prefix')
@@ -283,9 +332,77 @@ def main() -> int:
     parser.add_argument('--no-captions', dest='captions', action='store_false')
     parser.add_argument('--embed-subs', dest='embed_subs', action='store_true', default=True)
     parser.add_argument('--no-embed-subs', dest='embed_subs', action='store_false')
+    parser.add_argument(
+        '--external-srt', '--srt',
+        dest='external_srt',
+        action='store_true',
+        default=True,
+        help='Save external .srt subtitle file alongside the video (default: on)',
+    )
+    parser.add_argument(
+        '--no-external-srt', '--no-srt',
+        dest='external_srt',
+        action='store_false',
+        help='Do not save external .srt subtitle file',
+    )
     parser.add_argument('--browser', default='zen', choices=list(BROWSERS))
     parser.add_argument('--concurrent-fragments', type=int, default=4)
     parser.add_argument('--retries', type=int, default=10)
+    return parser
+
+
+def build_ydl_opts(
+    args: argparse.Namespace,
+    out_dir: Path,
+    prefix: str,
+    progress_callback=None,
+) -> dict:
+    ydl_opts = {
+        'outtmpl': str(out_dir / f'{prefix}. %(title)s.%(ext)s'),
+        'format': QUALITY_FORMATS[args.quality],
+        'concurrent_fragment_downloads': args.concurrent_fragments,
+        'retries': args.retries,
+        'quiet': True,
+        'no_warnings': True,
+    }
+    if progress_callback:
+        ydl_opts['progress_hooks'] = [progress_callback]
+
+    if args.captions:
+        ydl_opts['writesubtitles'] = True
+        ydl_opts['subtitleslangs'] = ['en', 'en-US', 'en.*']
+
+        pps = []
+        if getattr(args, 'external_srt', True):
+            pps.append({'key': 'FFmpegSubtitlesConvertor', 'format': 'srt'})
+
+        if args.embed_subs:
+            ydl_opts['embedsubtitles'] = True
+            ydl_opts['merge_output_format'] = 'mp4'
+            pps.append({
+                'key': 'FFmpegEmbedSubtitle',
+                'already_have_subtitle': bool(getattr(args, 'external_srt', True)),
+            })
+
+        if pps:
+            ydl_opts['postprocessors'] = pps
+        else:
+            ydl_opts['subtitlesformat'] = 'vtt'
+
+    cookie_arg = BROWSERS.get(args.browser)
+    if cookie_arg:
+        if ':' in cookie_arg:
+            browser_name, profile_path = cookie_arg.split(':', 1)
+            ydl_opts['cookiesfrombrowser'] = (browser_name, profile_path, None, None)
+        else:
+            ydl_opts['cookiesfrombrowser'] = (cookie_arg, None, None, None)
+
+    return ydl_opts
+
+
+# ── Main ──
+def main() -> int:
+    parser = build_parser()
     args = parser.parse_args()
 
     out_dir = args.out_dir.expanduser().resolve()
@@ -328,38 +445,7 @@ def main() -> int:
             emit(type='info', message=f'Using prefix {prefix} instead')
 
     # Build yt-dlp options.
-    ydl_opts = {
-        'outtmpl': str(out_dir / f'{prefix}. %(title)s.%(ext)s'),
-        'format': QUALITY_FORMATS[args.quality],
-        'concurrent_fragment_downloads': args.concurrent_fragments,
-        'retries': args.retries,
-        'progress_hooks': [progress_hook],
-        'quiet': True,
-        'no_warnings': True,
-    }
-    if args.captions:
-        ydl_opts['writesubtitles'] = True
-        ydl_opts['subtitleslangs'] = ['en', 'en-US', 'en.*']
-        if args.embed_subs:
-            # For MP4 output, subs must be converted to mov_text.
-            # postprocessor: FFmpegEmbedSubtitle handles the conversion.
-            ydl_opts['embedsubtitles'] = True
-            ydl_opts['merge_output_format'] = 'mp4'
-            # Don't specify subtitlesformat when embedding — let yt-dlp pick
-            # the best source format for the post-processor to convert.
-            ydl_opts['postprocessors'] = [
-                {'key': 'FFmpegEmbedSubtitle', 'already_have_subtitle': False},
-            ]
-        else:
-            # Sidecar only — user wants a separate .vtt file.
-            ydl_opts['subtitlesformat'] = 'vtt'
-    cookie_arg = BROWSERS[args.browser]
-    if cookie_arg:
-        if ':' in cookie_arg:
-            browser_name, profile_path = cookie_arg.split(':', 1)
-            ydl_opts['cookiesfrombrowser'] = (browser_name, profile_path, None, None)
-        else:
-            ydl_opts['cookiesfrombrowser'] = (cookie_arg, None, None, None)
+    ydl_opts = build_ydl_opts(args, out_dir, prefix, progress_hook)
 
     emit(type='info', message='Fetching video metadata...')
 
@@ -420,13 +506,20 @@ def main() -> int:
             if monitor:
                 monitor.join(timeout=1.0)
 
+        if args.captions and getattr(args, 'external_srt', True):
+            renamed_srts = normalize_external_srt(out_dir, prefix)
+            for srt_path in renamed_srts:
+                emit(type='info', message=f'Saved external subtitle: {srt_path.name}')
+
         final_path = None
         if info.get('requested_downloads'):
-            final_path = info['requested_downloads'][0].get('filepath')
+            req_path = info['requested_downloads'][0].get('filepath')
+            if req_path and Path(req_path).suffix.lower() in {'.mp4', '.mkv', '.webm', '.mov', '.m4v'}:
+                final_path = req_path
         if not final_path:
-            candidates = files_matching_prefix(out_dir, prefix)
-            if candidates:
-                final_path = str(max(candidates, key=lambda p: p.stat().st_mtime))
+            vpath = find_final_video_path(out_dir, prefix)
+            if vpath:
+                final_path = str(vpath)
 
         # Emit a final 100% progress event before done.
         emit(

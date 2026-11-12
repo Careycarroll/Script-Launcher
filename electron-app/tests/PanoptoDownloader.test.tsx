@@ -248,6 +248,47 @@ describe("PanoptoDownloader — start / metadata / confirm", () => {
     expect(opts.args).toContain("/mock/out");
     expect(opts.args).toContain("--captions");
     expect(opts.args).toContain("--embed-subs");
+    expect(opts.args).toContain("--external-srt");
+  });
+
+  it("passes --no-external-srt when external .srt checkbox is unchecked", async () => {
+    render(<PanoptoDownloader />);
+    await primeReadyState();
+
+    const srtCheckbox = screen.getByRole("checkbox", {
+      name: /save external \.srt file/i,
+    });
+    expect(srtCheckbox).toBeChecked();
+    fireEvent.click(srtCheckbox);
+    expect(srtCheckbox).not.toBeChecked();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Download$/i }));
+    await waitFor(() => expect(streamStartMock).toHaveBeenCalledTimes(1));
+    const opts = streamStartMock.mock.calls[0][0];
+    expect(opts.args).toContain("--no-external-srt");
+    expect(opts.args).not.toContain("--external-srt");
+  });
+
+  it("disables external .srt and embed-subs checkboxes when captions is unchecked", async () => {
+    render(<PanoptoDownloader />);
+    const captionsCheckbox = screen.getByRole("checkbox", {
+      name: /download captions/i,
+    });
+    const srtCheckbox = screen.getByRole("checkbox", {
+      name: /save external \.srt file/i,
+    });
+    const embedCheckbox = screen.getByRole("checkbox", {
+      name: /embed captions/i,
+    });
+
+    expect(srtCheckbox).toBeEnabled();
+    expect(embedCheckbox).toBeEnabled();
+
+    fireEvent.click(captionsCheckbox);
+
+    expect(captionsCheckbox).not.toBeChecked();
+    expect(srtCheckbox).toBeDisabled();
+    expect(embedCheckbox).toBeDisabled();
   });
 
   it("metadata event shows review UI with editable title", async () => {
@@ -271,6 +312,30 @@ describe("PanoptoDownloader — start / metadata / confirm", () => {
       /video title/i,
     ) as HTMLInputElement;
     expect(titleInput.value).toBe("Lecture 03");
+    expect(screen.getByText(/Will save as:/i)).toHaveTextContent(
+      "01. Lecture 03.mp4 + 01. Lecture 03.srt",
+    );
+  });
+
+  it("metadata review displays only .mp4 when external .srt is unchecked", async () => {
+    render(<PanoptoDownloader />);
+    await primeReadyState();
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /save external \.srt file/i }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Download$/i }));
+    await waitFor(() => expect(streamStartMock).toHaveBeenCalled());
+
+    act(() => {
+      emitStreamLine({
+        type: "metadata",
+        title: "Lecture 03",
+      });
+    });
+
+    const preview = screen.getByText(/Will save as:/i);
+    expect(preview).toHaveTextContent("01. Lecture 03.mp4");
+    expect(preview).not.toHaveTextContent(".srt");
   });
 
   it("Confirm & download sends action:confirm with edited title", async () => {

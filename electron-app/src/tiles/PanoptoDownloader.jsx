@@ -74,6 +74,7 @@ export default function PanoptoDownloader() {
   const [quality, setQuality] = useState("best");
   const [captions, setCaptions] = useState(true);
   const [embedSubs, setEmbedSubs] = useState(true);
+  const [externalSrt, setExternalSrt] = useState(true);
   const [browser, setBrowser] = useState(
     () => localStorage.getItem(BROWSER_KEY) || "zen",
   );
@@ -174,6 +175,7 @@ export default function PanoptoDownloader() {
       browser,
       captions ? "--captions" : "--no-captions",
       embedSubs ? "--embed-subs" : "--no-embed-subs",
+      externalSrt ? "--external-srt" : "--no-external-srt",
     ];
 
     onStreamLine((msg) => {
@@ -348,7 +350,7 @@ export default function PanoptoDownloader() {
               onChange={(e) => setCaptions(e.target.checked)}
               disabled={downloading}
             />
-            <span>Download captions (.vtt)</span>
+            <span>Download captions</span>
           </label>
           <label className="checkbox-row">
             <input
@@ -358,6 +360,15 @@ export default function PanoptoDownloader() {
               disabled={downloading || !captions}
             />
             <span>Embed captions in video</span>
+          </label>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={externalSrt}
+              onChange={(e) => setExternalSrt(e.target.checked)}
+              disabled={downloading || !captions}
+            />
+            <span>Save external .srt file</span>
           </label>
         </div>
 
@@ -404,6 +415,11 @@ export default function PanoptoDownloader() {
             </div>
             <div className="panopto-metadata-preview">
               Will save as: <code>{prefix}. {editedTitle}.mp4</code>
+              {captions && externalSrt && (
+                <span>
+                  {" "}+ <code>{prefix}. {editedTitle}.srt</code>
+                </span>
+              )}
             </div>
             <div className="panopto-metadata-actions">
               <button
